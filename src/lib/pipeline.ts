@@ -9,6 +9,7 @@ import { applyStageGate, type StageGateResult } from './pipeline/stageGate'
 import { filterDuplicates } from './pipeline/deduplicator'
 import { classifyTenders } from './pipeline/classifier'
 import { sendDigest } from './email/digest'
+import { enrichOpportunity } from './scraper/enricher'
 
 interface PipelineError {
   stage: string
@@ -232,6 +233,12 @@ export async function runPipeline(companyId: string): Promise<void> {
             },
           })
           savedOpportunities.push(opportunity)
+
+          // Fire and forget — never block the pipeline for enrichment.
+          enrichOpportunity(opportunity.id).catch((err) => {
+            const message = err instanceof Error ? err.message : String(err)
+            console.error(`[CRIBAL][ENRICH] Error enriqueciendo ${opportunity.id}: ${message}`)
+          })
 
           if (rawPubId) {
             await prisma.rawPublication.update({

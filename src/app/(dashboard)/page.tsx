@@ -13,12 +13,21 @@ import { RunStatusBadge } from '@/components/ui/run-status-badge'
 import { buttonClass } from '@/components/ui/button-styles'
 import { RunPipelineButton } from '@/components/run-pipeline-button'
 import { OnboardingBanner } from '@/components/onboarding-banner'
-import { formatDateDMY, formatSpanishDate, formatRelativeTime, truncate } from '@/lib/format'
+import { ClosingTimeline } from '@/components/dashboard/closing-timeline'
+import { getUrgentOpportunities, getBusinessDaysUntilClosing } from '@/lib/pipeline/urgency'
+import { startOfToday, addDays } from '@/lib/dates'
+import { formatDateDMY, formatSpanishDate, formatRelativeTime, formatDateTime, truncate } from '@/lib/format'
 
 const INACTIVE_STATUSES: OpportunityStatus[] = [
   OpportunityStatus.DESCARTADA,
   OpportunityStatus.ARCHIVADA,
   OpportunityStatus.NO_FIT,
+]
+
+const OPEN_STATUSES: OpportunityStatus[] = [
+  OpportunityStatus.NUEVA,
+  OpportunityStatus.REVISANDO,
+  OpportunityStatus.RELEVANTE,
 ]
 
 function MetricCard({
@@ -61,29 +70,69 @@ export default async function DashboardPage() {
   const sevenDaysAgo = new Date()
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
-  const [activeCount, newThisWeek, highlyRelevant, lastRun, recentOpportunities] =
-    await Promise.all([
-      prisma.opportunity.count({
-        where: { companyId, status: { notIn: INACTIVE_STATUSES } },
-      }),
-      prisma.opportunity.count({
-        where: {
-          companyId,
-          status: OpportunityStatus.NUEVA,
-          createdAt: { gte: sevenDaysAgo },
-        },
-      }),
-      prisma.opportunity.count({ where: { companyId, score: { gte: 8 } } }),
-      prisma.run.findFirst({
-        where: { companyId },
-        orderBy: { startedAt: 'desc' },
-      }),
-      prisma.opportunity.findMany({
-        where: { companyId },
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-      }),
-    ])
+  const [
+    activeCount,
+    newThisWeek,
+    highlyRelevant,
+    lastRun,
+    recentOpportunities,
+    timelineOpportunities,
+    urgentAll,
+  ] = await Promise.all([
+    prisma.opportunity.count({
+      where: { companyId, status: { notIn: INACTIVE_STATUSES } },
+    }),
+    prisma.opportunity.count({
+      where: {
+        companyId,
+        status: OpportunityStatus.NUEVA,
+        createdAt: { gte: sevenDaysAgo },
+      },
+    }),
+    prisma.opportunity.count({ where: { companyId, score: { gte: 8 } } }),
+    prisma.run.findFirst({
+      where: { companyId },
+      orderBy: { startedAt: 'desc' },
+    }),
+    prisma.opportunity.findMany({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    }),
+    prisma.opportunity.findMany({
+      where: {
+        companyId,
+        status: { notIn: INACTIVE_STATUSES },
+        closingDate: { gte: startOfToday(), lte: addDays(new Date(), 14) },
+      },
+      select: {
+        id: true,
+        title: true,
+        organismo: true,
+        closingDate: true,
+        score: true,
+        status: true,
+      },
+      orderBy: { closingDate: 'asc' },
+    }),
+    getUrgentOpportunities(companyId),
+  ])
+
+  // Timeline items are guaranteed to have a closing date by the query filter.
+  const timelineItems = timelineOpportunities
+    .filter((o): o is typeof o & { closingDate: Date } => o.closingDate !== null)
+    .map((o) => ({ ...o, closingDate: o.closingDate }))
+
+  // Urgent = closing within 3 business days; "closing this week" = within 5.
+  const urgentOpportunities = urgentAll.filter(
+    (o) => o.closingDate !== null && getBusinessDaysUntilClosing(o.closingDate) <= 3
+  )
+  const closingThisWeekCount = urgentAll.filter(
+    (o) =>
+      o.closingDate !== null &&
+      OPEN_STATUSES.includes(o.status) &&
+      getBusinessDaysUntilClosing(o.closingDate) <= 5
+  ).length
 
   return (
     <div className="space-y-6">
@@ -104,7 +153,7 @@ export default async function DashboardPage() {
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard
           icon="🎯"
           iconClass="bg-blue-50 text-blue-600"
@@ -136,7 +185,54 @@ export default async function DashboardPage() {
             ) : undefined
           }
         />
+        <MetricCard
+          icon="⏰"
+          iconClass="bg-red-50 text-red-600"
+          value={closingThisWeekCount}
+          label="Cierran esta semana"
+        />
       </section>
+
+      <ClosingTimeline opportunities={timelineItems} />
+
+      {urgentOpportunities.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-[#dc2626]">⚡ Atención requerida</h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {urgentOpportunities.map((opp) => {
+              const businessDays = opp.closingDate
+                ? getBusinessDaysUntilClosing(opp.closingDate)
+                : 0
+              return (
+                <div
+                  key={opp.id}
+                  className="rounded-xl border border-red-100 bg-red-50 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-[#111827]">{truncate(opp.title, 60)}</p>
+                      <p className="mt-0.5 text-sm font-semibold text-[#dc2626]">
+                        CIERRA EN {businessDays} DÍA{businessDays === 1 ? '' : 'S'} HÁBIL
+                        {businessDays === 1 ? '' : 'ES'}
+                      </p>
+                      <p className="mt-0.5 text-xs text-[#6b7280]">
+                        {opp.organismo ?? '—'} · {formatDateTime(opp.closingDate)} · Score{' '}
+                        {opp.score}
+                      </p>
+                    </div>
+                    <Link
+                      href={`/oportunidades/${opp.id}?tab=detalle`}
+                      className={buttonClass('secondary', 'sm')}
+                    >
+                      Ver →
+                    </Link>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       <Card>
         <div className="flex items-center justify-between border-b border-[#e5e7eb] px-5 py-4">

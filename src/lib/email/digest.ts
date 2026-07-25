@@ -1,8 +1,11 @@
 import { Resend } from 'resend'
 import type { CompanyConfig, Opportunity } from '@prisma/client'
 import type { NormalizedTender } from '../pipeline/normalizer'
+import { getUrgentOpportunities, getBusinessDaysUntilClosing } from '../pipeline/urgency'
+import { formatDateTime } from '../format'
 
 const ARCE_URL = 'https://www.comprasestatales.gub.uy'
+const APP_URL = 'https://cribal-production.up.railway.app'
 
 let cachedResend: Resend | null = null
 
@@ -68,6 +71,25 @@ function renderOpportunityCard(opp: Opportunity): string {
     </div>`
 }
 
+function renderUrgentCard(opp: Opportunity): string {
+  const businessDays = opp.closingDate ? getBusinessDaysUntilClosing(opp.closingDate) : 0
+  const closing = opp.closingDate ? formatDateTime(opp.closingDate) : ''
+  const organismo = opp.organismo ? escapeHtml(opp.organismo) : ''
+  const link = `${APP_URL}/oportunidades/${opp.id}?tab=detalle`
+
+  return `
+    <div style="border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:8px;padding:14px;margin-bottom:12px;background:#fef2f2;">
+      <h3 style="margin:0 0 4px 0;font-size:15px;color:#0f172a;">${escapeHtml(opp.title)}</h3>
+      <p style="margin:0 0 4px 0;font-size:13px;font-weight:700;color:#dc2626;">
+        CIERRA EN ${businessDays} DÍA(S) HÁBIL(ES) — ${escapeHtml(closing)}
+      </p>
+      <p style="margin:0 0 8px 0;font-size:13px;color:#64748b;">
+        Score: ${opp.score}/10 · ${organismo}
+      </p>
+      <a href="${link}" style="font-size:13px;font-weight:600;color:#dc2626;text-decoration:none;">Ver oportunidad →</a>
+    </div>`
+}
+
 function renderOtherTender(tender: NormalizedTender): string {
   const description = tender.description
     ? escapeHtml(tender.description.slice(0, 120))
@@ -85,12 +107,21 @@ function renderOtherTender(tender: NormalizedTender): string {
 function buildHtml(
   savedOpportunities: Opportunity[],
   otherTenders: NormalizedTender[],
+  urgentOpportunities: Opportunity[],
   company: CompanyConfig,
   formattedDate: string,
   totalFound: number
 ): string {
   const relevantCount = savedOpportunities.length
   const otherCount = otherTenders.length
+
+  const urgentSection =
+    urgentOpportunities.length > 0
+      ? `<div style="background:#ffffff;padding:24px 24px 0 24px;">
+      <h2 style="font-size:18px;color:#dc2626;margin:0 0 16px 0;">⚡ Oportunidades con cierre próximo</h2>
+      ${urgentOpportunities.map(renderUrgentCard).join('')}
+    </div>`
+      : ''
 
   const opportunityCards =
     relevantCount > 0
@@ -129,6 +160,8 @@ function buildHtml(
         <div style="font-size:12px;color:#cbd5e1;">Relevantes</div>
       </div>
     </div>
+
+    ${urgentSection}
 
     <div style="background:#ffffff;padding:24px;">
       <h2 style="font-size:18px;color:#0f172a;margin:0 0 16px 0;">Relevantes para postular (${relevantCount})</h2>
@@ -171,6 +204,12 @@ export async function sendDigest(
   const savedIds = new Set(savedOpportunities.map((o) => o.opportunityId))
   const otherTenders = allNewTenders.filter((t) => !savedIds.has(t.opportunityId))
 
+  // Urgent section: opportunities closing within 3 business days (from the DB,
+  // enriched on previous runs).
+  const urgentOpportunities = (await getUrgentOpportunities(company.id)).filter(
+    (opp) => opp.closingDate !== null && getBusinessDaysUntilClosing(opp.closingDate) <= 3
+  )
+
   const now = new Date()
   const formattedDate = formatSpanishDate(now)
   const relevantCount = savedOpportunities.length
@@ -179,6 +218,7 @@ export async function sendDigest(
   const html = buildHtml(
     savedOpportunities,
     otherTenders,
+    urgentOpportunities,
     company,
     formattedDate,
     allNewTenders.length

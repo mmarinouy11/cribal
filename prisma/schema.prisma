@@ -144,10 +144,59 @@ model Opportunity {
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
 
+  // Enrichment fields (auto-populated after saving)
+  enrichedAt              DateTime?
+  closingDate             DateTime?     // "Recepción de ofertas hasta"
+  openingDate             DateTime?     // "Acto de Apertura"
+  prorrogasDate           DateTime?     // "Prórrogas hasta el"
+  clarificationsDate      DateTime?     // "Aclaraciones hasta el"
+  contactEmail            String?
+  contactPhone            String?
+  contactName             String?
+  pliegoUrl               String?       // PDF pliego download URL
+  tenderItems             Json?         // Array of { itemNumber, name, articleCode, quantity, unit }
+  isElectronic            Boolean?      // "Apertura electrónica"
+  urgencyAlertSentAt      DateTime?     // Last time an urgency alert email was sent
+
+  // Market intelligence fields (populated on demand)
+  marketAnalyzedAt        DateTime?
+  similarAdjudications    Json?         // Historical similar tenders found
+  competitorMap           Json?         // Competitors who bid on similar tenders
+  priceIntelligence       Json?         // Price ranges from historical data
+  marketSummary           String?       // Claude-generated market summary
+
   proposals               Proposal[]
+  marketAnalyses          MarketAnalysis[]
 
   @@unique([companyId, opportunityId])
   @@map("opportunities")
+}
+
+model MarketAnalysis {
+  id                String      @id @default(uuid())
+  opportunityId     String
+  opportunity       Opportunity @relation(fields: [opportunityId], references: [id])
+  companyId         String
+
+  // Search parameters used
+  searchKeywords    String[]
+  articleCodes      String[]
+
+  // Results
+  adjudicationsFound  Int         @default(0)
+  competitorsFound    Int         @default(0)
+
+  // Structured data
+  adjudications     Json          // Array of found historical adjudications
+  competitors       Json          // Map of competitor -> { wins, totalAmount, organisms }
+  priceRange        Json          // { min, max, average, median, currency }
+
+  // AI summary
+  summary           String?       // Claude market intelligence summary in Spanish
+
+  analyzedAt        DateTime      @default(now())
+
+  @@map("market_analyses")
 }
 
 model Proposal {
