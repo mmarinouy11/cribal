@@ -90,12 +90,16 @@ export default async function RunDetailPage({
 }) {
   const session = await auth()
   if (!session) redirect('/login')
-  const companyId = session.user.companyId
 
+  // Regular users are scoped to their own company; admins may open any run.
+  const isAdmin = session.user.role === 'ADMIN'
   const run = await prisma.run.findFirst({
-    where: { id: params.id, companyId },
+    where: isAdmin ? { id: params.id } : { id: params.id, companyId: session.user.companyId },
   })
   if (!run) notFound()
+
+  // Scope child records to the run's own company (works for admins too).
+  const companyId = run.companyId
 
   const activeTabKey = firstValue(searchParams.tab) ?? 'todos'
   const activeTab = RAW_TABS.find((t) => t.key === activeTabKey) ?? RAW_TABS[0]

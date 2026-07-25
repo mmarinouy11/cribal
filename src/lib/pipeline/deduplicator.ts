@@ -8,15 +8,17 @@ export interface DeduplicationResult {
 
 /**
  * Split tenders into those not yet in the database and those that already exist
- * (matched by opportunityId).
+ * (matched by opportunityId). Scoped to a single company so tenants never see
+ * each other's opportunities as duplicates.
  */
 export async function filterDuplicates(
-  tenders: NormalizedTender[]
+  tenders: NormalizedTender[],
+  companyId: string
 ): Promise<DeduplicationResult> {
   const opportunityIds = tenders.map((t) => t.opportunityId)
 
   const existing = await prisma.opportunity.findMany({
-    where: { opportunityId: { in: opportunityIds } },
+    where: { companyId, opportunityId: { in: opportunityIds } },
     select: { opportunityId: true },
   })
   const existingIds = new Set(existing.map((o) => o.opportunityId))

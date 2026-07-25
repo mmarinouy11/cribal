@@ -158,8 +158,8 @@ export async function runPipeline(companyId: string): Promise<void> {
       `[CRIBAL][STAGE-GATE] ${exclusionResult.passed.length} → ${stageGatePassed.length} llamados abiertos`
     )
 
-    // 7d. DB duplicate check.
-    const { newTenders, duplicates } = await filterDuplicates(stageGatePassed)
+    // 7d. DB duplicate check (scoped to this company).
+    const { newTenders, duplicates } = await filterDuplicates(stageGatePassed, company.id)
     for (const tender of duplicates) {
       await saveRawPublication(
         run.id,
@@ -305,9 +305,17 @@ export async function runPipeline(companyId: string): Promise<void> {
 /**
  * Run the pipeline for every active company, sequentially to avoid hitting API
  * rate limits. One company's failure never blocks the others.
+ *
+ * `triggeredBy` only affects logging: 'cron' marks scheduled runs so they can be
+ * told apart from manual runs in the logs.
  */
-export async function runPipelineAllCompanies(): Promise<void> {
+export async function runPipelineAllCompanies(
+  triggeredBy: 'cron' | 'manual' = 'manual'
+): Promise<void> {
+  const prefix = triggeredBy === 'cron' ? '[CRIBAL][CRON]' : '[CRIBAL]'
   const companies = await prisma.companyConfig.findMany({ where: { isActive: true } })
+
+  console.log(`${prefix} Iniciando pipeline para ${companies.length} empresas activas...`)
 
   let totalOpportunities = 0
   for (const company of companies) {
@@ -316,13 +324,13 @@ export async function runPipelineAllCompanies(): Promise<void> {
       await runPipeline(company.id)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`[CRIBAL] Error inesperado en ${company.companyName}: ${message}`)
+      console.error(`${prefix} Error inesperado en ${company.companyName}: ${message}`)
     }
     const after = await prisma.opportunity.count({ where: { companyId: company.id } })
     totalOpportunities += after - before
   }
 
   console.log(
-    `[CRIBAL] Pipeline completado — ${companies.length} empresas, ${totalOpportunities} oportunidades totales`
+    `${prefix} Pipeline completado — ${companies.length} empresas, ${totalOpportunities} oportunidades totales`
   )
 }

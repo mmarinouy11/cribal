@@ -30,16 +30,20 @@ export default async function OpportunityDetailPage({
 }) {
   const session = await auth()
   if (!session) redirect('/login')
-  const companyId = session.user.companyId
 
+  // Regular users are scoped to their own company; admins may open any record.
+  const isAdmin = session.user.role === 'ADMIN'
   const opportunity = await prisma.opportunity.findFirst({
-    where: { id: params.id, companyId },
+    where: isAdmin
+      ? { id: params.id }
+      : { id: params.id, companyId: session.user.companyId },
   })
 
   if (!opportunity) notFound()
 
+  // Scope the proposal to the opportunity's own company (works for admins too).
   const proposalRow = await prisma.proposal.findFirst({
-    where: { opportunityId: opportunity.id, companyId },
+    where: { opportunityId: opportunity.id, companyId: opportunity.companyId },
     orderBy: { updatedAt: 'desc' },
   })
 

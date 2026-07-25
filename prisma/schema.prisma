@@ -21,6 +21,8 @@ model CompanyConfig {
   customAiPrompt       String?
   notificationEmails   String[]
   isActive             Boolean       @default(true)
+  registrationStatus   RegistrationStatus @default(PENDING)
+  registeredAt         DateTime?
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
@@ -30,6 +32,12 @@ model CompanyConfig {
   profile              CompanyProfile?
 
   @@map("company_configs")
+}
+
+enum RegistrationStatus {
+  PENDING    // Just registered, awaiting first pipeline run
+  ACTIVE     // Has run at least once
+  SUSPENDED  // Admin suspended
 }
 
 model CompanyProfile {
@@ -58,10 +66,16 @@ model User {
   name          String?
   companyId     String
   company       CompanyConfig @relation(fields: [companyId], references: [id])
+  role          UserRole      @default(USER)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
   @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  USER
 }
 
 model Run {
@@ -100,7 +114,7 @@ model Opportunity {
   runId                   String
   run                     Run               @relation(fields: [runId], references: [id])
 
-  opportunityId           String            @unique   // "arce|1345906"
+  opportunityId           String            // "arce|1345906" — unique per company
   externalId              String
   sourceType              String            @default("ARCE")
   publicationDate         DateTime?
@@ -132,6 +146,7 @@ model Opportunity {
 
   proposals               Proposal[]
 
+  @@unique([companyId, opportunityId])
   @@map("opportunities")
 }
 

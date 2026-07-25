@@ -13,6 +13,8 @@ Este repositorio contiene:
   los datos de su empresa.
 - **Fase 3**: configuración self-service del pipeline, perfil de empresa, y
   generador de propuestas comerciales con IA (edición inline y exportación a Word).
+- **Fase 4**: cron de Railway (endpoint protegido por token), registro público
+  de empresas, panel de administración y aislamiento multi-tenant reforzado.
 
 > Convención de idioma: todo el código, comentarios y nombres de variables en
 > inglés. Todo el texto de cara al usuario (logs, contenido de emails, valores de
@@ -112,6 +114,7 @@ consulta filtra por `companyId` — un usuario nunca ve datos de otra empresa.
 | Ruta                    | Descripción                                              |
 | ----------------------- | -------------------------------------------------------- |
 | `/login`                | Login por credenciales                                   |
+| `/register`             | Registro público de empresa (3 pasos)                    |
 | `/`                     | Dashboard con métricas y oportunidades recientes         |
 | `/oportunidades`        | Listado con filtros (estado, score, categoría, búsqueda) |
 | `/oportunidades/[id]`   | Detalle de la oportunidad + panel de revisión            |
@@ -119,6 +122,7 @@ consulta filtra por `companyId` — un usuario nunca ve datos de otra empresa.
 | `/ejecuciones/[id]`     | Embudo del pipeline + publicaciones crudas               |
 | `/perfil`               | Perfil de empresa (usado para generar propuestas)        |
 | `/configuracion`        | Edición self-service de todos los parámetros del pipeline |
+| `/admin`                | Panel de administración (solo rol `ADMIN`)               |
 
 La autenticación usa NextAuth v5 con estrategia JWT. El middleware usa una
 configuración *edge-safe* (`src/lib/auth.config.ts`) que no importa Prisma ni
@@ -126,18 +130,31 @@ bcrypt; el proveedor de credenciales completo vive en `src/lib/auth.ts`.
 
 ## API
 
-- `POST /api/runs` — dispara un run. Body opcional `{ companyId }`; sin él corre
-  para todas las empresas activas. Responde inmediatamente y ejecuta el pipeline
-  en segundo plano.
-- `GET /api/runs?companyId=xxx&limit=10` — historial de runs con todos los
-  contadores, ordenado por `startedAt` descendente.
+- `POST /api/runs` — dispara un run. Dos llamadores válidos:
+  - **Cron de Railway**: header `Authorization: Bearer $CRON_SECRET` → corre
+    todas las empresas activas.
+  - **Usuario autenticado**: corre su propia empresa (los admins, cualquiera).
+
+  Responde inmediatamente y ejecuta el pipeline en segundo plano.
+- `GET /api/runs?companyId=xxx&limit=10` — historial de runs. Los usuarios
+  regulares solo ven su empresa; los admins pueden filtrar por cualquiera.
+
+## Multi-tenant
+
+Cada consulta a `Opportunity`, `Run`, `RawPublication` y `Proposal` se filtra por
+`companyId`. `opportunityId` es único **por empresa** (`@@unique([companyId,
+opportunityId])`), así que dos empresas pueden seguir el mismo llamado sin
+colisionar. Los admins pueden ver datos de cualquier empresa vía el parámetro
+`?companyId=` (`getEffectiveCompanyId` en `src/lib/tenant.ts`); los usuarios
+regulares quedan siempre acotados a su empresa.
 
 ## Despliegue en Railway
 
 1. **Servicio Next.js** — conectado al repo de GitHub, auto-deploy en cada push.
 2. **PostgreSQL** — `DATABASE_URL` se inyecta automáticamente por Railway.
-3. **Cron job** — `curl -X POST https://cribal.up.railway.app/api/runs` con
-   schedule `0 20 * * 1-5`.
+3. **Cron job** — configurado en `railway.json` (`0 20 * * 1-5`), llama a
+   `POST /api/runs` con el header `Authorization: Bearer $CRON_SECRET`. No depende
+   de ninguna máquina local.
 
 Variables de entorno a configurar en el dashboard de Railway:
 
@@ -146,7 +163,8 @@ ANTHROPIC_API_KEY=...
 RESEND_API_KEY=...
 EMAIL_FROM=...
 NEXTAUTH_SECRET=...   # generar con `openssl rand -base64 32`
-NEXTAUTH_URL=https://cribal.up.railway.app
+NEXTAUTH_URL=https://cribal-production.up.railway.app
+CRON_SECRET=...       # generar con `openssl rand -base64 32`
 ```
 
 > El cliente de Prisma se genera automáticamente en `postinstall`. Recordá correr

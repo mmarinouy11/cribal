@@ -1,4 +1,5 @@
 import type { NextAuthConfig } from 'next-auth'
+import type { UserRole } from '@prisma/client'
 
 /**
  * Edge-safe auth configuration shared by the middleware and the full auth
@@ -18,12 +19,14 @@ export const authConfig = {
       if (user) {
         token.companyId = user.companyId
         token.companyName = user.companyName
+        token.role = user.role
       }
       return token
     },
     session({ session, token }) {
       session.user.companyId = token.companyId as string
       session.user.companyName = token.companyName as string
+      session.user.role = token.role as UserRole
       return session
     },
   },
