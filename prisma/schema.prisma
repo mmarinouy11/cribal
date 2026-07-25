@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model CompanyConfig {
+  id                   String        @id @default(uuid())
+  companyName          String
+  description          String?
+  capabilities         String[]
+  relevantKeywords     String[]
+  excludedKeywords     String[]
+  excludedProducts     String[]
+  minimumScore         Int           @default(7)
+  lookbackDays         Int           @default(1)
+  rssFeeds             String[]
+  customAiPrompt       String?
+  notificationEmails   String[]
+  isActive             Boolean       @default(true)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  runs                 Run[]
+  opportunities        Opportunity[]
+
+  @@map("company_configs")
+}
+
+model Run {
+  id                    String        @id @default(uuid())
+  companyId             String
+  company               CompanyConfig @relation(fields: [companyId], references: [id])
+  startedAt             DateTime      @default(now())
+  finishedAt            DateTime?
+  status                RunStatus     @default(RUNNING)
+  feedsChecked          Int           @default(0)
+  rawItemsFound         Int           @default(0)
+  itemsAfterDateFilter  Int           @default(0)
+  itemsAfterKeyword     Int           @default(0)
+  itemsAfterStageGate   Int           @default(0)
+  itemsSentToAi         Int           @default(0)
+  opportunitiesSaved    Int           @default(0)
+  errors                Json          @default("[]")
+  createdAt             DateTime      @default(now())
+
+  opportunities         Opportunity[]
+  rawPublications       RawPublication[]
+
+  @@map("runs")
+}
+
+enum RunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model Opportunity {
+  id                      String            @id @default(uuid())
+  companyId               String
+  company                 CompanyConfig     @relation(fields: [companyId], references: [id])
+  runId                   String
+  run                     Run               @relation(fields: [runId], references: [id])
+
+  opportunityId           String            @unique   // "arce|1345906"
+  externalId              String
+  sourceType              String            @default("ARCE")
+  publicationDate         DateTime?
+  detectedAt              DateTime          @default(now())
+
+  organismo               String?
+  title                   String
+  description             String?
+  url                     String
+  tenderType              String?
+
+  category                String?
+  score                   Int               @default(0)
+  summary                 String?
+  recommendedPlay         String?
+
+  stageGatePassed         Boolean?
+  stageGateReason         String?
+  aiRawOutput             Json?
+
+  status                  OpportunityStatus @default(NUEVA)
+  owner                   String?
+  nextAction              String?
+  nextFollowUpDate        DateTime?
+  notes                   String?
+
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+
+  @@map("opportunities")
+}
+
+enum OpportunityStatus {
+  NUEVA
+  REVISANDO
+  RELEVANTE
+  DESCARTADA
+  CONTACTADA
+  NO_FIT
+  ARCHIVADA
+}
+
+model RawPublication {
+  id             String    @id @default(uuid())
+  runId          String
+  run            Run       @relation(fields: [runId], references: [id])
+  tenderId       String
+  rawRssItem     Json
+  normalized     Json?
+  filterResult   String?   // "keyword_rechazado" | "exclusion_rechazado" | "stage_gate_rechazado" | "duplicado" | "enviado_a_ia" | "guardado"
+  filterReason   String?
+  createdAt      DateTime  @default(now())
+
+  @@map("raw_publications")
+}
