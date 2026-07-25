@@ -15,6 +15,7 @@ const NAV_ITEMS: { href: string; label: string; icon: string }[] = [
   { href: '/', label: 'Dashboard', icon: '📊' },
   { href: '/oportunidades', label: 'Oportunidades', icon: '🎯' },
   { href: '/ejecuciones', label: 'Ejecuciones', icon: '▶️' },
+  { href: '/perfil', label: 'Perfil', icon: '🏢' },
   { href: '/configuracion', label: 'Configuración', icon: '⚙️' },
 ]
 

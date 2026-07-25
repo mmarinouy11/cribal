@@ -47,13 +47,34 @@ async function seed(): Promise<void> {
     where: { companyName: tenarai.companyName },
   })
 
+  let companyId: string
   if (existing) {
     await prisma.companyConfig.update({ where: { id: existing.id }, data: tenarai })
+    companyId = existing.id
     console.log(`[CRIBAL][SEED] Empresa actualizada: ${tenarai.companyName}`)
   } else {
-    await prisma.companyConfig.create({ data: tenarai })
+    const created = await prisma.companyConfig.create({ data: tenarai })
+    companyId = created.id
     console.log(`[CRIBAL][SEED] Empresa creada: ${tenarai.companyName}`)
   }
+
+  const profile = {
+    longDescription:
+      'Tenarai LATAM es una empresa de tecnología y servicios digitales con presencia en Uruguay y operaciones nearshore para el mercado norteamericano. Especializada en desarrollo de software, servicios de soporte técnico gestionado, transformación digital y soluciones de datos e inteligencia artificial.',
+    teamSize: '50-200 personas',
+    caseStudies:
+      'Desarrollo e implementación de plataformas digitales para empresas del Fortune 500. Operación de mesas de ayuda L1/L2 con SLAs garantizados para clientes en industrias de retail, fintech y salud.',
+    differentiators:
+      'Equipo bilingüe español/inglés. Experiencia en proyectos de Estado uruguayo. Metodologías ágiles certificadas. Disponibilidad 24/7 para servicios de soporte.',
+    certifications: 'CMMI, ISO 27001',
+  }
+
+  await prisma.companyProfile.upsert({
+    where: { companyId },
+    create: { companyId, ...profile },
+    update: profile,
+  })
+  console.log(`[CRIBAL][SEED] Perfil actualizado: ${tenarai.companyName}`)
 }
 
 seed()

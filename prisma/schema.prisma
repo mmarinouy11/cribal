@@ -27,8 +27,28 @@ model CompanyConfig {
   runs                 Run[]
   opportunities        Opportunity[]
   users                User[]
+  profile              CompanyProfile?
 
   @@map("company_configs")
+}
+
+model CompanyProfile {
+  id                String        @id @default(uuid())
+  companyId         String        @unique
+  company           CompanyConfig @relation(fields: [companyId], references: [id])
+
+  longDescription   String?       // Full company description for proposals
+  founded           String?       // e.g. "2015"
+  teamSize          String?       // e.g. "50-100 personas"
+  caseStudies       String?       // Free text: past relevant projects
+  certifications    String?       // e.g. "ISO 27001, CMMI Level 3"
+  differentiators   String?       // What makes the company unique
+  proposalTemplate  String?       // Custom instructions for proposal generation
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@map("company_profiles")
 }
 
 model User {
@@ -110,7 +130,28 @@ model Opportunity {
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
 
+  proposals               Proposal[]
+
   @@map("opportunities")
+}
+
+model Proposal {
+  id              String      @id @default(uuid())
+  opportunityId   String
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id])
+  companyId       String
+
+  executiveSummary       String?
+  valueProposition       String?
+  relevantCapabilities   String?
+  clarificationQuestions String?
+  nextSteps              String?
+  fullText               String?   // Combined full proposal text
+
+  generatedAt     DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@map("proposals")
 }
 
 enum OpportunityStatus {
