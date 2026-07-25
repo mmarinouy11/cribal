@@ -15,6 +15,10 @@ Este repositorio contiene:
   generador de propuestas comerciales con IA (edición inline y exportación a Word).
 - **Fase 4**: cron de Railway (endpoint protegido por token), registro público
   de empresas, panel de administración y aislamiento multi-tenant reforzado.
+- **Fase 5**: enriquecimiento automático desde ARCE (fechas de cierre, ítems,
+  contacto, pliego), timeline de vencimientos y alertas de urgencia, e
+  inteligencia de mercado on-demand (adjudicaciones históricas, competidores y
+  rangos de precio) con resumen de IA.
 
 > Convención de idioma: todo el código, comentarios y nombres de variables en
 > inglés. Todo el texto de cara al usuario (logs, contenido de emails, valores de
@@ -138,6 +142,23 @@ bcrypt; el proveedor de credenciales completo vive en `src/lib/auth.ts`.
   Responde inmediatamente y ejecuta el pipeline en segundo plano.
 - `GET /api/runs?companyId=xxx&limit=10` — historial de runs. Los usuarios
   regulares solo ven su empresa; los admins pueden filtrar por cualquiera.
+
+## Enriquecimiento e inteligencia de mercado (Fase 5)
+
+- **Enriquecimiento** (`src/lib/scraper/`): al guardarse una oportunidad, se
+  descarga su página de detalle en ARCE (con `User-Agent: Mozilla/5.0
+  (compatible; Cribal/1.0)`) y se extraen fechas de cierre/apertura, ítems con
+  código de artículo, contacto y pliego. Es *fire-and-forget* — nunca bloquea el
+  pipeline. También hay un botón "Actualizar datos ARCE" para re-enriquecer.
+- **Urgencia** (`src/lib/pipeline/urgency.ts`, `src/lib/urgency-utils.ts`): días
+  hábiles hasta el cierre, timeline de 14 días en el dashboard, sección
+  "Atención requerida" y email de alerta cuando una oportunidad RELEVANTE cierra
+  en ≤ 3 días hábiles.
+- **Mercado** (`src/lib/scraper/market-intelligence.ts`): análisis on-demand
+  (solo estados Relevante/Revisando). Busca adjudicaciones históricas por código
+  de artículo o keyword, arma el mapa de competidores, estima rangos de precio
+  (percentiles 25–75) y genera un resumen con Claude. Se ejecuta solo por acción
+  explícita del usuario (tiene costo de API).
 
 ## Multi-tenant
 
