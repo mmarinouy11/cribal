@@ -7,6 +7,7 @@ import { ClickableRow } from '@/components/ui/clickable-row'
 import { RunStatusBadge } from '@/components/ui/run-status-badge'
 import { Pagination } from '@/components/ui/pagination'
 import { RunPipelineButton } from '@/components/run-pipeline-button'
+import { getEffectiveCompanyId } from '@/lib/tenant'
 import { formatDateTime, formatDuration } from '@/lib/format'
 
 const PAGE_SIZE = 20
@@ -24,7 +25,9 @@ export default async function RunsPage({
 }) {
   const session = await auth()
   if (!session) redirect('/login')
-  const companyId = session.user.companyId
+
+  const companyIdParam = firstValue(searchParams.companyId)
+  const companyId = getEffectiveCompanyId(session, companyIdParam)
 
   const page = Math.max(1, Number(firstValue(searchParams.page)) || 1)
 
@@ -96,7 +99,7 @@ export default async function RunsPage({
         basePath="/ejecuciones"
         currentPage={page}
         totalPages={totalPages}
-        searchParams={{}}
+        searchParams={{ companyId: companyIdParam }}
       />
     </div>
   )

@@ -41,6 +41,8 @@ async function seed(): Promise<void> {
     ],
     notificationEmails: ['marcelo.marino@infogain.com'],
     isActive: true,
+    registrationStatus: 'ACTIVE' as const,
+    registeredAt: new Date(),
   }
 
   const existing = await prisma.companyConfig.findFirst({

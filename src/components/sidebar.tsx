@@ -9,9 +9,16 @@ interface SidebarProps {
   companyName: string
   userName: string
   userEmail: string
+  isAdmin: boolean
 }
 
-const NAV_ITEMS: { href: string; label: string; icon: string }[] = [
+interface NavItem {
+  href: string
+  label: string
+  icon: string
+}
+
+const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: '📊' },
   { href: '/oportunidades', label: 'Oportunidades', icon: '🎯' },
   { href: '/ejecuciones', label: 'Ejecuciones', icon: '▶️' },
@@ -19,13 +26,16 @@ const NAV_ITEMS: { href: string; label: string; icon: string }[] = [
   { href: '/configuracion', label: 'Configuración', icon: '⚙️' },
 ]
 
+const ADMIN_NAV_ITEM: NavItem = { href: '/admin', label: 'Admin', icon: '🔧' }
+
 function isActive(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/'
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function Sidebar({ companyName, userName, userEmail }: SidebarProps) {
+export function Sidebar({ companyName, userName, userEmail, isAdmin }: SidebarProps) {
   const pathname = usePathname()
+  const navItems = isAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS
 
   return (
     <aside className="fixed left-0 top-0 flex h-screen w-64 flex-col bg-[#0f172a] text-white">
@@ -35,7 +45,7 @@ export function Sidebar({ companyName, userName, userEmail }: SidebarProps) {
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">
-        {NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <Link
             key={item.href}
             href={item.href}

@@ -11,6 +11,7 @@ import { Pagination } from '@/components/ui/pagination'
 import { buttonClass } from '@/components/ui/button-styles'
 import { OpportunitiesFilters } from '@/components/opportunities-filters'
 import { StatusSelect } from '@/components/status-select'
+import { getEffectiveCompanyId } from '@/lib/tenant'
 import { formatDateDMY, truncate } from '@/lib/format'
 
 const PAGE_SIZE = 20
@@ -36,7 +37,9 @@ export default async function OpportunitiesPage({
 }) {
   const session = await auth()
   if (!session) redirect('/login')
-  const companyId = session.user.companyId
+
+  const companyIdParam = firstValue(searchParams.companyId)
+  const companyId = getEffectiveCompanyId(session, companyIdParam)
 
   const statusParam = firstValue(searchParams.status)
   const minScoreParam = firstValue(searchParams.minScore)
@@ -76,6 +79,7 @@ export default async function OpportunitiesPage({
     minScore: minScoreParam,
     category: categoryParam,
     q: qParam,
+    companyId: companyIdParam,
   }
 
   return (

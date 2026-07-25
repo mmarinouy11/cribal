@@ -12,6 +12,7 @@ import { CategoryBadge } from '@/components/ui/category-badge'
 import { RunStatusBadge } from '@/components/ui/run-status-badge'
 import { buttonClass } from '@/components/ui/button-styles'
 import { RunPipelineButton } from '@/components/run-pipeline-button'
+import { OnboardingBanner } from '@/components/onboarding-banner'
 import { formatDateDMY, formatSpanishDate, formatRelativeTime, truncate } from '@/lib/format'
 
 const INACTIVE_STATUSES: OpportunityStatus[] = [
@@ -86,6 +87,8 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <OnboardingBanner />
+
       <header className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#111827]">Dashboard</h1>

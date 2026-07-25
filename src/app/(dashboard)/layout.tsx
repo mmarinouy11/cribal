@@ -16,6 +16,7 @@ export default async function DashboardLayout({
         companyName={session.user.companyName}
         userName={session.user.name ?? session.user.email ?? 'Usuario'}
         userEmail={session.user.email ?? ''}
+        isAdmin={session.user.role === 'ADMIN'}
       />
       <main className="ml-64 min-h-screen p-8">{children}</main>
     </div>

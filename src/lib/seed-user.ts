@@ -25,8 +25,8 @@ async function seedUser(): Promise<void> {
 
   await prisma.user.upsert({
     where: { email },
-    update: { name, passwordHash, companyId: company.id },
-    create: { email, name, passwordHash, companyId: company.id },
+    update: { name, passwordHash, companyId: company.id, role: 'ADMIN' },
+    create: { email, name, passwordHash, companyId: company.id, role: 'ADMIN' },
   })
 
   console.log(`[CRIBAL][SEED] Usuario creado: ${email}`)
