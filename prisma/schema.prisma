@@ -26,8 +26,22 @@ model CompanyConfig {
 
   runs                 Run[]
   opportunities        Opportunity[]
+  users                User[]
 
   @@map("company_configs")
+}
+
+model User {
+  id            String        @id @default(uuid())
+  email         String        @unique
+  passwordHash  String
+  name          String?
+  companyId     String
+  company       CompanyConfig @relation(fields: [companyId], references: [id])
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@map("users")
 }
 
 model Run {
