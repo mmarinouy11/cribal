@@ -1,23 +1,41 @@
-import { Card, CardBody } from '@/components/ui/card'
+import { redirect } from 'next/navigation'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/db/prisma'
+import { ConfigForm, type ConfigFormValues } from '@/components/config/config-form'
 
-export default function ConfigurationPage() {
+export default async function ConfigurationPage() {
+  const session = await auth()
+  if (!session) redirect('/login')
+
+  const company = await prisma.companyConfig.findUnique({
+    where: { id: session.user.companyId },
+  })
+  if (!company) redirect('/login')
+
+  const initial: ConfigFormValues = {
+    companyName: company.companyName,
+    description: company.description ?? '',
+    notificationEmails: company.notificationEmails,
+    minimumScore: company.minimumScore,
+    lookbackDays: company.lookbackDays,
+    capabilities: company.capabilities,
+    rssFeeds: company.rssFeeds,
+    relevantKeywords: company.relevantKeywords,
+    excludedKeywords: company.excludedKeywords,
+    excludedProducts: company.excludedProducts,
+    customAiPrompt: company.customAiPrompt ?? '',
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <header>
         <h1 className="text-2xl font-bold text-[#111827]">Configuración</h1>
-        <p className="text-sm text-[#6b7280]">Ajustes de la empresa y del pipeline.</p>
+        <p className="text-sm text-[#6b7280]">
+          Ajustá los parámetros del pipeline de {company.companyName}.
+        </p>
       </header>
 
-      <Card>
-        <CardBody className="py-16 text-center">
-          <div className="text-4xl" aria-hidden>
-            ⚙️
-          </div>
-          <p className="mt-3 text-sm text-[#6b7280]">
-            La configuración estará disponible en la Fase 3.
-          </p>
-        </CardBody>
-      </Card>
+      <ConfigForm initial={initial} />
     </div>
   )
 }

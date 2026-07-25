@@ -7,8 +7,10 @@ import { CategoryBadge } from '@/components/ui/category-badge'
 import { Badge } from '@/components/ui/badge'
 import { buttonClass } from '@/components/ui/button-styles'
 import { ReviewPanel } from '@/components/review-panel'
+import { ProposalGenerator } from '@/components/proposal/proposal-generator'
 import { scoreColorClass } from '@/components/ui/score-badge'
 import { formatDateDMY, formatDateTime } from '@/lib/format'
+import type { ProposalData } from '@/lib/actions/proposals'
 
 function MetaItem({ label, value }: { label: string; value: string }) {
   return (
@@ -28,12 +30,28 @@ export default async function OpportunityDetailPage({
 }) {
   const session = await auth()
   if (!session) redirect('/login')
+  const companyId = session.user.companyId
 
   const opportunity = await prisma.opportunity.findFirst({
-    where: { id: params.id, companyId: session.user.companyId },
+    where: { id: params.id, companyId },
   })
 
   if (!opportunity) notFound()
+
+  const proposalRow = await prisma.proposal.findFirst({
+    where: { opportunityId: opportunity.id, companyId },
+    orderBy: { updatedAt: 'desc' },
+  })
+
+  const savedProposal: ProposalData | null = proposalRow
+    ? {
+        executiveSummary: proposalRow.executiveSummary ?? '',
+        valueProposition: proposalRow.valueProposition ?? '',
+        relevantCapabilities: proposalRow.relevantCapabilities ?? '',
+        clarificationQuestions: proposalRow.clarificationQuestions ?? '',
+        nextSteps: proposalRow.nextSteps ?? '',
+      }
+    : null
 
   const scoreWidth = `${Math.max(0, Math.min(10, opportunity.score)) * 10}%`
   const rawOutput = opportunity.aiRawOutput
@@ -156,6 +174,15 @@ export default async function OpportunityDetailPage({
               </CardBody>
             </Card>
           )}
+
+          <ProposalGenerator
+            opportunityId={opportunity.id}
+            opportunity={{
+              title: opportunity.title,
+              organismo: opportunity.organismo ?? '',
+            }}
+            savedProposal={savedProposal}
+          />
         </div>
 
         {/* Right column — review panel */}

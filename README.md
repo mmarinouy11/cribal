@@ -11,6 +11,8 @@ Este repositorio contiene:
 - **Fase 2**: autenticación (NextAuth v5), dashboard, listado y detalle de
   oportunidades, e historial de ejecuciones. Multi-tenant: cada usuario solo ve
   los datos de su empresa.
+- **Fase 3**: configuración self-service del pipeline, perfil de empresa, y
+  generador de propuestas comerciales con IA (edición inline y exportación a Word).
 
 > Convención de idioma: todo el código, comentarios y nombres de variables en
 > inglés. Todo el texto de cara al usuario (logs, contenido de emails, valores de
@@ -21,9 +23,10 @@ Este repositorio contiene:
 - Next.js 14 (App Router) + TypeScript strict
 - PostgreSQL + Prisma
 - NextAuth v5 (autenticación por credenciales) + bcryptjs
-- Anthropic SDK (`claude-sonnet-4-6`)
+- Anthropic SDK (`claude-sonnet-4-6`) — clasificación y generación de propuestas
 - Resend (email)
 - rss-parser (feeds RSS)
+- docx + file-saver (exportación de propuestas a Word)
 - node-cron (scheduling local para desarrollo)
 - Tailwind CSS (UI)
 
@@ -114,7 +117,8 @@ consulta filtra por `companyId` — un usuario nunca ve datos de otra empresa.
 | `/oportunidades/[id]`   | Detalle de la oportunidad + panel de revisión            |
 | `/ejecuciones`          | Historial de ejecuciones con todos los contadores        |
 | `/ejecuciones/[id]`     | Embudo del pipeline + publicaciones crudas               |
-| `/configuracion`        | Placeholder para la Fase 3                               |
+| `/perfil`               | Perfil de empresa (usado para generar propuestas)        |
+| `/configuracion`        | Edición self-service de todos los parámetros del pipeline |
 
 La autenticación usa NextAuth v5 con estrategia JWT. El middleware usa una
 configuración *edge-safe* (`src/lib/auth.config.ts`) que no importa Prisma ni
