@@ -2,15 +2,10 @@
 
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/db/prisma'
-import { BASE_EXCLUSION_KEYWORDS } from '@/lib/pipeline/exclusionFilter'
 import { sendWelcomeEmail } from '@/lib/email/welcome'
 
-// The three ARCE feeds used as sensible defaults for every new company.
-const DEFAULT_RSS_FEEDS = [
-  'https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/10',
-  'https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/3',
-  'https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/texto/microsoft',
-]
+// Fallback feed used only when the form supplies no RSS feeds at all.
+const FALLBACK_RSS_FEED = 'https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/3'
 
 export interface RegisterCompanyInput {
   // Step 1
@@ -24,6 +19,11 @@ export interface RegisterCompanyInput {
   capabilities: string[]
   minimumScore: number
   notificationEmail: string
+  // Step 3 — AI-generated (or manually adjusted) configuration
+  relevantKeywords: string[]
+  excludedKeywords: string[]
+  excludedProducts: string[]
+  rssFeeds: string[]
 }
 
 export interface RegisterCompanyResult {
@@ -57,6 +57,10 @@ export async function registerCompany(
   const capabilities = data.capabilities.map((c) => c.trim()).filter(Boolean)
   const passwordHash = await bcrypt.hash(data.password, 12)
 
+  // Configuration comes from the form (AI-generated or manually adjusted).
+  const cleanList = (list: string[]): string[] => list.map((s) => s.trim()).filter(Boolean)
+  const rssFeeds = cleanList(data.rssFeeds)
+
   // 3-5. Create company, profile and user atomically.
   try {
     await prisma.$transaction(async (tx) => {
@@ -65,12 +69,12 @@ export async function registerCompany(
           companyName,
           description: data.description.trim() || null,
           capabilities,
-          relevantKeywords: [],
-          excludedKeywords: BASE_EXCLUSION_KEYWORDS,
-          excludedProducts: [],
+          relevantKeywords: cleanList(data.relevantKeywords),
+          excludedKeywords: cleanList(data.excludedKeywords),
+          excludedProducts: cleanList(data.excludedProducts),
           minimumScore,
           lookbackDays: 1,
-          rssFeeds: DEFAULT_RSS_FEEDS,
+          rssFeeds: rssFeeds.length > 0 ? rssFeeds : [FALLBACK_RSS_FEED],
           notificationEmails: [notificationEmail],
           isActive: true,
           registrationStatus: 'PENDING',

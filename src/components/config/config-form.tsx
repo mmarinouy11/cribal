@@ -8,7 +8,9 @@ import { TagInput } from '@/components/ui/tag-input'
 import {
   updateCompanyConfig,
   testRssFeeds,
+  generateCompanyConfig,
   type FeedTestResult,
+  type GeneratedCompanyConfig,
 } from '@/lib/actions/config'
 
 export interface ConfigFormValues {
@@ -65,9 +67,55 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
   const [newFeed, setNewFeed] = useState('')
   const [feedResults, setFeedResults] = useState<FeedTestResult[] | null>(null)
   const [isTesting, startTesting] = useTransition()
+  const [suggestion, setSuggestion] = useState<GeneratedCompanyConfig | null>(null)
+  const [isSuggesting, startSuggesting] = useTransition()
 
   function set<K extends keyof ConfigFormValues>(key: K, value: ConfigFormValues[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function handleRegenerate() {
+    if (!form.description.trim() && form.capabilities.length === 0) {
+      setToast({
+        message:
+          'Completá la descripción de tu empresa para generar una configuración personalizada',
+        type: 'error',
+      })
+      return
+    }
+    startSuggesting(async () => {
+      try {
+        const result = await generateCompanyConfig({
+          companyName: form.companyName,
+          description: form.description,
+          capabilities: form.capabilities,
+        })
+        setSuggestion(result)
+      } catch {
+        setToast({
+          message: 'No se pudo generar la configuración. Intentá de nuevo.',
+          type: 'error',
+        })
+      }
+    })
+  }
+
+  function applySuggestion() {
+    if (!suggestion) return
+    // Replace fields in the form only — the user still has to click "Guardar".
+    setForm((prev) => ({
+      ...prev,
+      rssFeeds: suggestion.rssFeeds,
+      relevantKeywords: suggestion.relevantKeywords,
+      excludedKeywords: suggestion.excludedKeywords,
+      excludedProducts: suggestion.excludedProducts,
+      minimumScore: suggestion.minimumScore,
+    }))
+    setSuggestion(null)
+    setToast({
+      message: 'Sugerencias aplicadas. Revisá y guardá los cambios.',
+      type: 'success',
+    })
   }
 
   function addFeed() {
@@ -123,8 +171,65 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
   }
 
   return (
-    <div className="rounded-xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
-      <Section title="Información general">
+    <div className="space-y-4">
+      <div>
+        <Button variant="secondary" onClick={handleRegenerate} disabled={isSuggesting}>
+          {isSuggesting ? 'Generando…' : '🤖 Regenerar configuración con IA'}
+        </Button>
+      </div>
+
+      {suggestion && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+          <h2 className="font-semibold text-[#1e3a5f]">🤖 Configuración sugerida por IA</h2>
+          {suggestion.reasoning && (
+            <p className="mt-2 text-sm text-[#111827]">💡 {suggestion.reasoning}</p>
+          )}
+
+          <div className="mt-4 space-y-3 text-sm">
+            <div>
+              <p className="font-medium text-[#111827]">Feeds RSS sugeridos:</p>
+              <ul className="mt-1 space-y-0.5 text-[#334155]">
+                {suggestion.rssFeeds.map((feed) => (
+                  <li key={feed} className="break-all">
+                    • {feed}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="font-medium text-[#111827]">
+                Keywords relevantes (+{suggestion.relevantKeywords.length}):
+              </p>
+              <p className="mt-1 text-[#334155]">
+                {suggestion.relevantKeywords.join(' · ') || '—'}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium text-[#111827]">
+                Keywords excluidos (+{suggestion.excludedKeywords.length}):
+              </p>
+              <p className="mt-1 text-[#334155]">
+                {suggestion.excludedKeywords.join(' · ') || '—'}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium text-[#111827]">
+                Score mínimo sugerido: {suggestion.minimumScore}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex gap-2">
+            <Button onClick={applySuggestion}>Aplicar sugerencias</Button>
+            <Button variant="secondary" onClick={() => setSuggestion(null)}>
+              Descartar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
+        <Section title="Información general">
         <Field label="Nombre de la empresa">
           <input
             type="text"
@@ -308,10 +413,11 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
         </Button>
       </Section>
 
-      <div className="pt-4">
-        <Button onClick={handleSave} disabled={isPending} className="w-full">
-          {isPending ? 'Guardando…' : 'Guardar configuración'}
-        </Button>
+        <div className="pt-4">
+          <Button onClick={handleSave} disabled={isPending} className="w-full">
+            {isPending ? 'Guardando…' : 'Guardar configuración'}
+          </Button>
+        </div>
       </div>
 
       {toast && (
