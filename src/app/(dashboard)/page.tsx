@@ -10,7 +10,7 @@ import { ScoreBadge } from '@/components/ui/score-badge'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { CategoryBadge } from '@/components/ui/category-badge'
 import { RunStatusBadge } from '@/components/ui/run-status-badge'
-import { buttonClass } from '@/components/ui/button'
+import { buttonClass } from '@/components/ui/button-styles'
 import { RunPipelineButton } from '@/components/run-pipeline-button'
 import { formatDateDMY, formatSpanishDate, formatRelativeTime, truncate } from '@/lib/format'
 
