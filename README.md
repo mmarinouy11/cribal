@@ -4,9 +4,13 @@ Plataforma multi-tenant que monitorea las publicaciones de compras estatales de
 Uruguay (ARCE — comprasestatales.gub.uy), clasifica oportunidades de negocio con
 IA y envía un resumen diario por email a cada empresa configurada.
 
-Este repositorio contiene la **Fase 1**: setup del proyecto, esquema de base de
-datos, pipeline de procesamiento y digest por email. Todavía sin UI — el objetivo
-es un pipeline end-to-end funcionando, desplegable en Railway.
+Este repositorio contiene:
+
+- **Fase 1**: setup del proyecto, esquema de base de datos, pipeline de
+  procesamiento y digest por email.
+- **Fase 2**: autenticación (NextAuth v5), dashboard, listado y detalle de
+  oportunidades, e historial de ejecuciones. Multi-tenant: cada usuario solo ve
+  los datos de su empresa.
 
 > Convención de idioma: todo el código, comentarios y nombres de variables en
 > inglés. Todo el texto de cara al usuario (logs, contenido de emails, valores de
@@ -16,10 +20,12 @@ es un pipeline end-to-end funcionando, desplegable en Railway.
 
 - Next.js 14 (App Router) + TypeScript strict
 - PostgreSQL + Prisma
+- NextAuth v5 (autenticación por credenciales) + bcryptjs
 - Anthropic SDK (`claude-sonnet-4-6`)
 - Resend (email)
 - rss-parser (feeds RSS)
 - node-cron (scheduling local para desarrollo)
+- Tailwind CSS (UI)
 
 ## Setup local
 
@@ -36,6 +42,9 @@ es un pipeline end-to-end funcionando, desplegable en Railway.
    ANTHROPIC_API_KEY=sk-ant-...
    RESEND_API_KEY=re_...
    EMAIL_FROM=onboarding@resend.dev
+   NEXTAUTH_SECRET=generate-with-openssl-rand-base64-32
+   NEXTAUTH_URL=http://localhost:3000
+   SEED_USER_PASSWORD=cribal2024
    ```
 
 3. Aplicar el esquema a la base de datos y generar el cliente Prisma:
@@ -45,11 +54,19 @@ es un pipeline end-to-end funcionando, desplegable en Railway.
    npx prisma generate
    ```
 
-4. Cargar la empresa inicial (Tenarai LATAM) y correr el pipeline:
+4. Cargar la empresa inicial (Tenarai LATAM), el usuario inicial y correr el
+   pipeline:
 
    ```bash
-   npm run seed
-   npm run pipeline
+   npm run seed        # empresa Tenarai LATAM
+   npm run seed:user   # usuario marcelo.marino@infogain.com
+   npm run pipeline    # ejecuta el pipeline
+   ```
+
+5. Levantar el dashboard e iniciar sesión en `/login`:
+
+   ```bash
+   npm run dev
    ```
 
 ## Scripts
@@ -61,6 +78,7 @@ es un pipeline end-to-end funcionando, desplegable en Railway.
 | `npm run start`     | Servidor de producción                                        |
 | `npm run lint`      | ESLint                                                        |
 | `npm run seed`      | Carga la configuración inicial de la empresa (Tenarai LATAM)  |
+| `npm run seed:user` | Crea el usuario inicial (requiere `npm run seed` antes)       |
 | `npm run pipeline`  | Ejecuta el pipeline para todas las empresas activas           |
 | `npm run scheduler` | Scheduler local (L-V 20:00 Montevideo) para desarrollo        |
 
@@ -83,6 +101,25 @@ El pipeline (`src/lib/pipeline.ts`) ejecuta, por empresa:
 12. Envía el digest por email.
 13. Marca el run como `COMPLETED`.
 
+## Dashboard (Fase 2)
+
+Rutas protegidas por sesión (redirigen a `/login` si no hay sesión). Cada
+consulta filtra por `companyId` — un usuario nunca ve datos de otra empresa.
+
+| Ruta                    | Descripción                                              |
+| ----------------------- | -------------------------------------------------------- |
+| `/login`                | Login por credenciales                                   |
+| `/`                     | Dashboard con métricas y oportunidades recientes         |
+| `/oportunidades`        | Listado con filtros (estado, score, categoría, búsqueda) |
+| `/oportunidades/[id]`   | Detalle de la oportunidad + panel de revisión            |
+| `/ejecuciones`          | Historial de ejecuciones con todos los contadores        |
+| `/ejecuciones/[id]`     | Embudo del pipeline + publicaciones crudas               |
+| `/configuracion`        | Placeholder para la Fase 3                               |
+
+La autenticación usa NextAuth v5 con estrategia JWT. El middleware usa una
+configuración *edge-safe* (`src/lib/auth.config.ts`) que no importa Prisma ni
+bcrypt; el proveedor de credenciales completo vive en `src/lib/auth.ts`.
+
 ## API
 
 - `POST /api/runs` — dispara un run. Body opcional `{ companyId }`; sin él corre
@@ -104,6 +141,8 @@ Variables de entorno a configurar en el dashboard de Railway:
 ANTHROPIC_API_KEY=...
 RESEND_API_KEY=...
 EMAIL_FROM=...
+NEXTAUTH_SECRET=...   # generar con `openssl rand -base64 32`
+NEXTAUTH_URL=https://cribal.up.railway.app
 ```
 
 > El cliente de Prisma se genera automáticamente en `postinstall`. Recordá correr
