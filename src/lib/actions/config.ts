@@ -18,36 +18,130 @@ const CONFIG_MODEL = 'claude-sonnet-4-6'
 const CONFIG_SYSTEM_PROMPT = `Sos un experto en el sistema de compras estatales de Uruguay (ARCE / comprasestatales.gub.uy).
 Tu tarea es configurar un sistema de alertas de licitaciones para una empresa según su perfil.
 
-El sistema de ARCE organiza las licitaciones en "familias". Los feeds RSS más relevantes son:
+El sistema de ARCE organiza las licitaciones en una jerarquía de 4 niveles: Familia → Subfamilia → Clase → Subclase.
+Los feeds RSS pueden filtrarse por familia y subfamilia usando estas URLs:
+- Por familia: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/{id_familia}
+- Por subfamilia: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/{id_familia}/subfamilia/{id_subfamilia}
+- Por texto libre: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/texto/{término_sin_espacios}
 
-Familia 10 — Bienes de Tecnología de la Información y Comunicación (TIC)
-URL: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/10
+CATÁLOGO COMPLETO DE ARCE:
 
-Familia 3 — Servicios no personales (consultoría, servicios profesionales, mantenimiento)
-URL: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/3
+FAMILIA 2 — MATERIALES Y SUMINISTROS
+  Subfamilia 1: Alimentos y productos agropecuarios, forestales y marítimos
+    Clases: Alimentos origen agropecuario, Alimentos manufacturados y bebidas, Semillas, Plantas
+  Subfamilia 2: Minerales (gravilla, arena, piedra, arcilla, petróleo)
+  Subfamilia 3: Productos textiles, vestir y cuero (telas, prendas, calzado)
+  Subfamilia 4: Productos de papel, libros impresos y digitales
+  Subfamilia 5: Productos energéticos (combustibles, electricidad, gas)
+  Subfamilia 6: Productos químicos (caucho, lubricantes, insecticidas, pinturas, plásticos, explosivos)
+  Subfamilia 7: Productos minerales no metálicos y de madera (cerámica, vidrio, cemento, madera)
+  Subfamilia 8: Productos metálicos (hierro, acero, herramientas, estructuras)
+  Subfamilia 9: Otros materiales y suministros
+    Clases: Útiles de oficina, Útiles de limpieza, Útiles eléctricos, Útiles médico-quirúrgicos,
+            Útiles deportivos, Útiles de cocina, Útiles educacionales, Equipos de protección personal,
+            Instrumentos de medida, Elementos contra incendio, Artículos de ferretería
+  Subfamilia 10: Productos de uso marino (accesorios náuticos, buceo)
+  Subfamilia 12: Repuestos y accesorios
+    Clases:
+      Clase 1: Para máquinas y equipos de transporte
+        Subclases: Repuestos de chasis, frenos, motor, transmisión, sistema eléctrico,
+                   Repuestos para bicicletas (18), Repuestos para motos (20), Repuestos para aeronaves (17)
+      Clase 2: Para máquinas y equipos de oficina (fotocopiadoras, informatica, aire acondicionado)
+      Clase 3: Para máquinas y equipos de producción (industriales, gastronómicos)
+      Clase 4: Otros repuestos y accesorios
+      Clase 5: Para equipos médicos, sanitarios, odontológicos, científicos
+  Subfamilia 13: Medicamentos y antisépticos uso humano (fármacos, vacunas, oncológicos)
 
-Familia 1 — Obras (construcción, reformas, infraestructura)
-URL: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/1
+FAMILIA 3 — SERVICIOS NO PERSONALES
+  Subfamilia 1: Servicios básicos (telefonía, correo, agua, gas, electricidad)
+  Subfamilia 2: Publicidad, impresiones y encuadernaciones
+  Subfamilia 3: Pasajes, viáticos y gastos de traslado
+  Subfamilia 4: Transporte y almacenaje (mudanzas, fletes, almacenaje)
+  Subfamilia 5: Arrendamientos (inmuebles, equipos, vehículos, software)
+  Subfamilia 6: Tributos, multas, seguros y comisiones
+  Subfamilia 7: Servicios de mantenimiento y reparaciones menores
+    Clases: Inmuebles, Instalaciones eléctricas/sanitarias, Maquinaria industrial,
+            Equipos de oficina, Vehículos, Espacios verdes, Instrumentos musicales
+  Subfamilia 8: Servicios profesionales contratados
+    Clases:
+      Clase 2: Servicios médicos (análisis, cirugía, imagenología, odontología)
+      Clase 9: Otros servicios profesionales (capacitación, investigación, diseño, asesoramiento,
+               consultoría, veterinaria, guías de turismo, cálculo y diseño)
+  Subfamilia 9: Otros servicios contratados
+    Clases:
+      Clase 1: Servicios de limpieza (barrido, locales, lavado, fumigación, esterilización)
+      Clase 2: Servicios de vigilancia (policía, vigilancia privada, bomberos)
+      Clase 4: Servicios de instalación (equipos electrónicos, seguridad, calefacción)
+      Clase 9: Otros servicios (gastronomía, hospedaje, turismo, espectáculos, traducción,
+               producción TV/radio, control de plagas, confección, carpintería)
+  Subfamilia 10: Servicios de Tecnologías de la Información y Comunicación (TIC)
+    Clase 1 — Servicios TIC contratados:
+      Ingeniería de software (1), Soporte técnico informático (2), Seguridad de información (3),
+      Manipulación de datos (4), Aplicaciones web (5), Ingeniería electrónica y telecomunicaciones (6),
+      Infraestructura tecnológica (7), Gerenciamiento de proyectos TIC (8), Servicios de nube (9)
+    Clase 2 — Servicios TIC ofrecidos:
+      Usuarios internos (1), Usuarios externos (2), Comunicaciones (3), Soporte aplicaciones (4),
+      Alojamiento/hosting (5), Centros de datos (6), Seguridad informática (7), Gestión proyectos (8)
 
-Familia 2 — Bienes (suministros, equipamiento, materiales)
-URL: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/2
+FAMILIA 4 — MAQUINARIA Y EQUIPOS
+  Subfamilia 1: Maquinaria y equipos de producción (industrial, agrícola, construcción, energía)
+  Subfamilia 2: Máquinas y equipos de oficina (fotocopiadoras, electrodomésticos, seguridad física)
+  Subfamilia 3: Equipos médicos, sanitarios, odontológicos y científicos
+  Subfamilia 4: Equipos educacionales, culturales y recreativos (audio, video, fotografía, deportivos)
+  Subfamilia 5: Equipos de transporte
+    Clases: Automóviles, Camionetas, Ómnibus, Vehículos pesados,
+            Ciclomotores y bicicletas (5), Embarcaciones (7), Aeronaves (10)
+  Subfamilia 6: Equipos de comunicaciones excepto telefonía (radiocomunicación, señalización vial)
+  Subfamilia 7: Motores y partes para reemplazo
+  Subfamilia 8: Mobiliario (madera, metal, hospitalario, urbano)
+  Subfamilia 9: Otras máquinas, equipos y mobiliarios nuevos
 
-Familia 4 — Servicios personales (recursos humanos, capacitación)
-URL: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/4
+FAMILIA 5 — BIENES DE USO EXISTENTES (compra de activos usados)
+  Tierras, edificios, maquinaria existente, semovientes (bovinos, ovinos, equinos), activos financieros
 
-Familia 5 — Arrendamientos (alquileres de bienes y servicios)
-URL: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/5
+FAMILIA 6 — OBRAS DE CONSTRUCCIÓN E INFRAESTRUCTURA
+  Subfamilia 1: Vías de comunicación (carreteras, calles, puentes, vías férreas)
+  Subfamilia 2: Edificaciones (oficinas, vivienda, salud, enseñanza, otros)
+  Subfamilia 3: Obras hidráulicas, hidroeléctricas, eléctricas y sanitarias (alcantarillado, saneamiento)
+  Subfamilia 4: Obras urbanísticas (parques, plazas, monumentos, canchas)
+  Subfamilia 5: Instalaciones de transmisión y distribución (iluminación, gasoductos, telefonía)
+  Subfamilia 6: Mejoras de tierras y plantaciones (forestación, riego)
+  Subfamilia 8: Reparaciones mayores y extraordinarias (reciclaje inmuebles, demoliciones)
+  Subfamilia 9: Instalación de servicios locales (industrial, domiciliaria, comunicaciones)
 
-Búsqueda por texto — para términos específicos del rubro:
-URL: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/texto/{término}
+FAMILIA 10 — INFRAESTRUCTURA TECNOLÓGICA (hardware e insumos TIC)
+  Subfamilia 43: Infraestructura tecnológica
+    Clase 19: Dispositivos de comunicaciones
+    Clase 20: Dispositivos TI y telecomunicaciones (almacenamiento, interfaces)
+    Clase 21: Equipos informáticos (computadoras, periféricos, impresoras, insumos)
+    Clase 22: Equipos de redes (telefonía, seguridad de red, servicios de red)
+    Clase 23: Software de base y aplicaciones
+      Subclases: Software de gestión (15), planificación/contabilidad (16), desarrollo (24),
+                 aplicaciones específicas (26), seguridad (32), entorno operativo (30), licencias (36)
+    Clase 24: Sistemas de información (bases de datos, soporte electrónico)
+
+FAMILIA 12 — PRODUCTOS EXCLUSIVOS ENTES (UTE, ANCAP, ANTEL)
+  Solo para empresas que proveen a UTE (electricidad), ANCAP (combustibles) o ANTEL (telecomunicaciones)
+
+NOTAS IMPORTANTES:
+- Familia 3 subfamilia 10 = servicios TIC (desarrollo software, soporte, cloud) → para empresas de TI
+- Familia 10 subfamilia 43 = hardware TIC (computadoras, licencias) → para resellers/distribuidores TIC
+- Familia 3 subfamilia 9 clase 1 = limpieza → para empresas de limpieza
+- Familia 3 subfamilia 8 = servicios profesionales → para consultoras, médicos, diseñadores
+- Familia 6 = obras → para constructoras, ingeniería civil
+- Familia 2 subfamilia 12 clase 1 subclase 18 = repuestos bicicletas → muy específico
+- Familia 4 subfamilia 5 clase 5 = bicicletas (compra de vehículos nuevos)
+- Familia 3 subfamilia 7 = mantenimiento y reparaciones → para empresas de servicio técnico
+- Familia 2 subfamilia 1 = alimentos → para proveedores de alimentos al Estado
+- Si la empresa está en un rubro muy específico, preferir subfamilia sobre familia completa
 
 Respondé ÚNICAMENTE con un objeto JSON válido, sin markdown, sin texto adicional:
 {
   "relevantKeywords": string[],     // 10-20 términos en español específicos para este rubro
-  "excludedKeywords": string[],     // 5-15 términos que claramente NO aplican a esta empresa
-  "excludedProducts": string[],     // 0-5 productos/marcas específicas a excluir (puede ser array vacío)
-  "rssFeeds": string[],             // 1-4 URLs de feeds relevantes para este perfil
-  "minimumScore": number,           // Entre 6 y 8 según qué tan específico es el rubro
+  "excludedKeywords": string[],     // 5-15 términos que claramente NO aplican
+  "excludedProducts": string[],     // 0-5 marcas/productos específicos a excluir (puede ser [])
+  "rssFeeds": string[],             // 1-5 URLs de feeds (familia o subfamilia según especificidad)
+  "minimumScore": number,           // Entre 6 y 8
   "reasoning": string               // 2-3 oraciones en español explicando las elecciones
 }`
 
