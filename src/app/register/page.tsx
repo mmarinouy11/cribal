@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { signIn } from 'next-auth/react'
 import { TagInput } from '@/components/ui/tag-input'
+import { LogoMark } from '@/components/ui/logo'
 import { registerCompany } from '@/lib/actions/auth'
 import { generateCompanyConfig, type GeneratedCompanyConfig } from '@/lib/actions/config'
 import { lookupCompany } from '@/lib/actions/company-lookup'
@@ -31,8 +32,8 @@ function capabilitiesToList(text: string): string[] {
 }
 
 const inputClass =
-  'w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]'
-const labelClass = 'mb-1 block text-sm font-medium text-[#111827]'
+  'w-full rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c] outline-none focus:border-[#06b6d4] focus:ring-1 focus:ring-[#06b6d4]'
+const labelClass = 'mb-1 block text-sm font-medium text-[#0c1e3c]'
 
 /** Human-readable label for an ARCE RSS feed URL. */
 function feedLabel(url: string): string {
@@ -217,11 +218,19 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0f172a] px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-[#0c1e3c] px-4 py-10">
       <div className="w-full max-w-lg rounded-xl bg-white p-8 shadow-2xl">
         <div className="mb-6 text-center">
-          <h1 className="text-3xl font-bold text-[#111827]">🔎 Cribal</h1>
-          <p className="mt-1 text-sm text-[#6b7280]">Creá tu cuenta</p>
+          <div className="flex items-center justify-center gap-2.5">
+            <LogoMark size={32} />
+            <span
+              className="text-2xl font-semibold text-[#0c1e3c]"
+              style={{ letterSpacing: '-0.5px' }}
+            >
+              cribal
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-[#64748b]">Creá tu cuenta</p>
         </div>
 
         {/* Progress indicator */}
@@ -230,7 +239,7 @@ export default function RegisterPage() {
             <div key={label} className="flex flex-1 flex-col items-center">
               <div
                 className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${
-                  index <= step ? 'bg-[#1e3a5f] text-white' : 'bg-[#e5e7eb] text-[#6b7280]'
+                  index <= step ? 'bg-[#06b6d4] text-white' : 'bg-[#cbd5e1] text-white'
                 }`}
               >
                 {index + 1}
@@ -272,10 +281,10 @@ export default function RegisterPage() {
                   type="button"
                   onClick={handleLookup}
                   disabled={looking}
-                  className="inline-flex items-center gap-2 rounded-lg border border-[#1e3a5f] bg-white px-3 py-2 text-sm font-medium text-[#1e3a5f] hover:bg-[#f8fafc] disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#0c1e3c] bg-white px-3 py-2 text-sm font-medium text-[#0c1e3c] hover:bg-[#f0f9ff] disabled:opacity-60"
                 >
                   {looking && (
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#1e3a5f] border-t-transparent" />
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#0c1e3c] border-t-transparent" />
                   )}
                   {looking ? 'Buscando…' : '🔍 Buscar información de la empresa'}
                 </button>
@@ -354,12 +363,12 @@ export default function RegisterPage() {
 
         {step === 2 && (
           <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-[#111827]">Qué buscás en ARCE</h2>
+            <h2 className="text-lg font-semibold text-[#0c1e3c]">Qué buscás en ARCE</h2>
 
             {generating && (
-              <div className="flex items-center gap-3 rounded-lg bg-[#f8fafc] px-4 py-4">
-                <span className="h-5 w-5 animate-spin rounded-full border-2 border-[#1e3a5f] border-t-transparent" />
-                <span className="text-sm text-[#111827]">
+              <div className="flex items-center gap-3 rounded-lg bg-[#f0f9ff] px-4 py-4">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-[#0c1e3c] border-t-transparent" />
+                <span className="text-sm text-[#0c1e3c]">
                   Analizando el perfil de tu empresa…
                 </span>
               </div>
@@ -371,7 +380,7 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={runGeneration}
-                  className="rounded-lg border border-[#e5e7eb] bg-white px-3 py-1.5 text-sm font-medium text-[#111827] hover:bg-[#f8fafc]"
+                  className="rounded-lg border border-[#e0f2fe] bg-white px-3 py-1.5 text-sm font-medium text-[#0c1e3c] hover:bg-[#f0f9ff]"
                 >
                   Generar configuración
                 </button>
@@ -380,9 +389,9 @@ export default function RegisterPage() {
 
             {!generating && config && (
               <div className="space-y-4">
-                <div className="rounded-lg border border-[#e5e7eb] p-4">
+                <div className="rounded-lg border border-[#e0f2fe] p-4">
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-[#111827]">
+                    <span className="text-sm font-semibold text-[#0c1e3c]">
                       Feeds RSS ({config.rssFeeds.length})
                     </span>
                   </div>
@@ -393,8 +402,8 @@ export default function RegisterPage() {
                   </ul>
                 </div>
 
-                <div className="rounded-lg border border-[#e5e7eb] p-4">
-                  <span className="text-sm font-semibold text-[#111827]">
+                <div className="rounded-lg border border-[#e0f2fe] p-4">
+                  <span className="text-sm font-semibold text-[#0c1e3c]">
                     Keywords relevantes ({config.relevantKeywords.length})
                   </span>
                   <p className="mt-1 text-sm text-[#334155]">
@@ -402,8 +411,8 @@ export default function RegisterPage() {
                   </p>
                 </div>
 
-                <div className="rounded-lg border border-[#e5e7eb] p-4">
-                  <span className="text-sm font-semibold text-[#111827]">
+                <div className="rounded-lg border border-[#e0f2fe] p-4">
+                  <span className="text-sm font-semibold text-[#0c1e3c]">
                     Keywords excluidos ({config.excludedKeywords.length})
                   </span>
                   <p className="mt-1 text-sm text-[#334155]">
@@ -411,12 +420,12 @@ export default function RegisterPage() {
                   </p>
                 </div>
 
-                <div className="rounded-lg border border-[#e5e7eb] p-4 text-sm text-[#111827]">
+                <div className="rounded-lg border border-[#e0f2fe] p-4 text-sm text-[#0c1e3c]">
                   Score mínimo: <span className="font-semibold">{config.minimumScore}</span>
                 </div>
 
                 {config.reasoning && (
-                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-[#111827]">
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-[#0c1e3c]">
                     💡 {config.reasoning}
                   </div>
                 )}
@@ -424,13 +433,13 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => setEditing((v) => !v)}
-                  className="text-sm font-medium text-[#2563eb] hover:underline"
+                  className="text-sm font-medium text-[#0e7490] hover:underline"
                 >
                   {editing ? 'Ocultar ajustes' : 'Ajustar configuración'}
                 </button>
 
                 {editing && (
-                  <div className="space-y-4 rounded-lg border border-[#e5e7eb] bg-[#f8fafc] p-4">
+                  <div className="space-y-4 rounded-lg border border-[#e0f2fe] bg-[#f0f9ff] p-4">
                     <div>
                       <label className={labelClass}>Feeds RSS</label>
                       <TagInput
@@ -472,7 +481,7 @@ export default function RegisterPage() {
                           onClick={() =>
                             updateConfig('minimumScore', Math.max(5, config.minimumScore - 1))
                           }
-                          className="h-8 w-8 rounded-lg border border-[#e5e7eb] bg-white text-[#111827]"
+                          className="h-8 w-8 rounded-lg border border-[#e0f2fe] bg-white text-[#0c1e3c]"
                         >
                           −
                         </button>
@@ -484,7 +493,7 @@ export default function RegisterPage() {
                           onClick={() =>
                             updateConfig('minimumScore', Math.min(10, config.minimumScore + 1))
                           }
-                          className="h-8 w-8 rounded-lg border border-[#e5e7eb] bg-white text-[#111827]"
+                          className="h-8 w-8 rounded-lg border border-[#e0f2fe] bg-white text-[#0c1e3c]"
                         >
                           +
                         </button>
@@ -521,7 +530,7 @@ export default function RegisterPage() {
               type="button"
               onClick={goBack}
               disabled={loading}
-              className="flex-1 rounded-lg border border-[#e5e7eb] py-2.5 text-sm font-medium text-[#111827] hover:bg-[#f8fafc] disabled:opacity-60"
+              className="flex-1 rounded-lg border border-[#e0f2fe] py-2.5 text-sm font-medium text-[#0c1e3c] hover:bg-[#f0f9ff] disabled:opacity-60"
             >
               Atrás
             </button>
@@ -530,7 +539,7 @@ export default function RegisterPage() {
             <button
               type="button"
               onClick={goNext}
-              className="flex-1 rounded-lg bg-[#1e3a5f] py-2.5 text-sm font-medium text-white hover:bg-[#16304e]"
+              className="flex-1 rounded-lg bg-[#06b6d4] py-2.5 text-sm font-medium text-white hover:bg-[#0891b2]"
             >
               Siguiente
             </button>
@@ -539,7 +548,7 @@ export default function RegisterPage() {
               type="button"
               onClick={handleSubmit}
               disabled={loading || generating}
-              className="flex-1 rounded-lg bg-[#1e3a5f] py-2.5 text-sm font-medium text-white hover:bg-[#16304e] disabled:opacity-60"
+              className="flex-1 rounded-lg bg-[#06b6d4] py-2.5 text-sm font-medium text-white hover:bg-[#0891b2] disabled:opacity-60"
             >
               {loading ? 'Creando cuenta…' : 'Usar esta configuración →'}
             </button>
@@ -548,7 +557,7 @@ export default function RegisterPage() {
 
         <p className="mt-6 text-center text-sm text-[#6b7280]">
           ¿Ya tenés cuenta?{' '}
-          <Link href="/login" className="font-medium text-[#2563eb] hover:underline">
+          <Link href="/login" className="font-medium text-[#0e7490] hover:underline">
             Iniciar sesión
           </Link>
         </p>

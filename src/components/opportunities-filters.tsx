@@ -50,7 +50,7 @@ export function OpportunitiesFilters() {
   }
 
   return (
-    <div className="space-y-3 rounded-xl border border-[#e5e7eb] bg-white p-4 shadow-sm">
+    <div className="space-y-3 rounded-xl border border-[#e0f2fe] bg-white p-4 shadow-sm">
       <div className="flex flex-wrap gap-2">
         {STATUS_OPTIONS.map((option) => {
           const active = selectedStatuses.includes(option.value)
@@ -62,8 +62,8 @@ export function OpportunitiesFilters() {
               className={cn(
                 'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
                 active
-                  ? 'border-[#1e3a5f] bg-[#1e3a5f] text-white'
-                  : 'border-[#e5e7eb] bg-white text-[#6b7280] hover:bg-[#f8fafc]'
+                  ? 'border-[#0c1e3c] bg-[#0c1e3c] text-white'
+                  : 'border-[#e0f2fe] bg-white text-[#6b7280] hover:bg-[#f0f9ff]'
               )}
             >
               {option.label}
@@ -83,7 +83,7 @@ export function OpportunitiesFilters() {
                 else params.delete('minScore')
               })
             }
-            className="mt-1 rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827]"
+            className="mt-1 rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c]"
           >
             <option value="">Todos</option>
             {SCORE_OPTIONS.map((score) => (
@@ -104,7 +104,7 @@ export function OpportunitiesFilters() {
                 else params.delete('category')
               })
             }
-            className="mt-1 rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827]"
+            className="mt-1 rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c]"
           >
             <option value="">Todas</option>
             {CATEGORY_OPTIONS.map((option) => (
@@ -122,14 +122,14 @@ export function OpportunitiesFilters() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Título u organismo…"
-            className="mt-1 min-w-[200px] rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827]"
+            className="mt-1 min-w-[200px] rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c]"
           />
         </form>
 
         <button
           type="button"
           onClick={clearFilters}
-          className="rounded-lg border border-[#e5e7eb] bg-white px-3 py-2 text-sm text-[#6b7280] hover:bg-[#f8fafc]"
+          className="rounded-lg border border-[#e0f2fe] bg-white px-3 py-2 text-sm text-[#6b7280] hover:bg-[#f0f9ff]"
         >
           Limpiar filtros
         </button>

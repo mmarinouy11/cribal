@@ -85,8 +85,8 @@ export default async function OpportunitiesPage({
   return (
     <div className="space-y-6">
       <header className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold text-[#111827]">Oportunidades</h1>
-        <span className="rounded-full bg-[#e5e7eb] px-2.5 py-0.5 text-sm font-medium text-[#374151]">
+        <h1 className="text-2xl font-bold text-[#0c1e3c]">Oportunidades</h1>
+        <span className="rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-sm font-medium text-[#374151]">
           {total}
         </span>
       </header>
@@ -121,7 +121,7 @@ export default async function OpportunitiesPage({
                   <Td>
                     <Link
                       href={`/oportunidades/${opp.id}`}
-                      className="font-medium text-[#1e3a5f] hover:underline"
+                      className="font-medium text-[#0c1e3c] hover:underline"
                     >
                       {truncate(opp.title, 60)}
                     </Link>

@@ -35,9 +35,9 @@ function escapeHtml(str: string): string {
 }
 
 function scoreBadgeColors(score: number): { color: string; background: string } {
-  if (score >= 9) return { color: '#16a34a', background: '#dcfce7' }
-  if (score >= 7) return { color: '#2563eb', background: '#dbeafe' }
-  return { color: '#d97706', background: '#fef3c7' }
+  if (score >= 9) return { color: '#065f46', background: '#d1fae5' }
+  if (score >= 7) return { color: '#0e7490', background: '#cffafe' }
+  return { color: '#92400e', background: '#fef3c7' }
 }
 
 function renderOpportunityCard(opp: Opportunity): string {
@@ -67,7 +67,7 @@ function renderOpportunityCard(opp: Opportunity): string {
           ? `<p style="margin:0 0 12px 0;font-size:14px;color:#334155;"><strong>Ángulo comercial:</strong> ${play}</p>`
           : ''
       }
-      <a href="${escapeHtml(opp.url)}" style="display:inline-block;font-size:14px;font-weight:600;color:#ffffff;background:#1e3a5f;padding:8px 14px;border-radius:6px;text-decoration:none;">Ver licitación →</a>
+      <a href="${escapeHtml(opp.url)}" style="display:inline-block;font-size:14px;font-weight:600;color:#ffffff;background:#0c1e3c;padding:8px 14px;border-radius:6px;text-decoration:none;">Ver licitación →</a>
     </div>`
 }
 
@@ -98,7 +98,7 @@ function renderOtherTender(tender: NormalizedTender): string {
 
   return `
     <li style="margin-bottom:12px;list-style:none;">
-      <a href="${escapeHtml(tender.url)}" style="font-size:15px;font-weight:600;color:#1e3a5f;text-decoration:none;">${escapeHtml(tender.title)}</a>
+      <a href="${escapeHtml(tender.url)}" style="font-size:15px;font-weight:600;color:#0c1e3c;text-decoration:none;">${escapeHtml(tender.title)}</a>
       ${description ? `<p style="margin:2px 0 2px 0;font-size:13px;color:#475569;">${description}</p>` : ''}
       ${organismo ? `<p style="margin:0;font-size:12px;color:#94a3b8;">${organismo}</p>` : ''}
     </li>`
@@ -141,7 +141,7 @@ function buildHtml(
 </head>
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
   <div style="max-width:640px;margin:0 auto;padding:24px;">
-    <div style="background:#1e3a5f;color:#ffffff;padding:24px;border-radius:8px 8px 0 0;">
+    <div style="background:#0c1e3c;color:#ffffff;padding:24px;border-radius:8px 8px 0 0;">
       <h1 style="margin:0;font-size:22px;">${escapeHtml(company.companyName)}</h1>
       <p style="margin:6px 0 0 0;font-size:14px;color:#cbd5e1;">${escapeHtml(formattedDate)}</p>
     </div>
@@ -173,7 +173,7 @@ function buildHtml(
 
     <div style="background:#e2e8f0;padding:16px 24px;border-radius:0 0 8px 8px;text-align:center;">
       <p style="margin:0 0 4px 0;font-size:13px;">
-        <a href="${ARCE_URL}" style="color:#1e3a5f;text-decoration:none;">Ir a Compras Estatales (ARCE)</a>
+        <a href="${ARCE_URL}" style="color:#0c1e3c;text-decoration:none;">Ir a Compras Estatales (ARCE)</a>
       </p>
       <p style="margin:0;font-size:12px;color:#64748b;">Generado automáticamente por Cribal</p>
     </div>
@@ -213,7 +213,7 @@ export async function sendDigest(
   const now = new Date()
   const formattedDate = formatSpanishDate(now)
   const relevantCount = savedOpportunities.length
-  const subject = `🔎 Cribal — ${relevantCount} oportunidad(es) relevante(s) · ${formattedDate}`
+  const subject = `Cribal — ${relevantCount} oportunidad(es) relevante(s) · ${formattedDate}`
 
   const html = buildHtml(
     savedOpportunities,

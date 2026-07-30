@@ -3,7 +3,7 @@ export type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error'
 const STATUS_META: Record<Exclude<SaveStatus, 'idle'>, { label: string; className: string }> = {
   unsaved: { label: '● Cambios sin guardar', className: 'text-[#d97706]' },
   saving: { label: 'Guardando…', className: 'text-[#6b7280]' },
-  saved: { label: '✓ Guardado', className: 'text-[#16a34a]' },
+  saved: { label: '✓ Guardado', className: 'text-[#065f46]' },
   error: { label: '✗ Error al guardar', className: 'text-[#dc2626]' },
 }
 

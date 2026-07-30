@@ -18,7 +18,7 @@ import { formatDateDMY, formatRelativeTime } from '@/lib/format'
 
 const REGISTRATION_META: Record<RegistrationStatus, { label: string; className: string }> = {
   PENDING: { label: 'Pendiente', className: 'bg-amber-100 text-amber-700' },
-  ACTIVE: { label: 'Activa', className: 'bg-green-100 text-green-700' },
+  ACTIVE: { label: 'Activa', className: 'bg-[#d1fae5] text-[#065f46]' },
   SUSPENDED: { label: 'Suspendida', className: 'bg-red-100 text-red-700' },
 }
 
@@ -56,13 +56,13 @@ export default async function AdminPage() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-bold text-[#111827]">Admin</h1>
+        <h1 className="text-2xl font-bold text-[#0c1e3c]">Admin</h1>
         <p className="text-sm text-[#6b7280]">Gestión de empresas, usuarios y sistema.</p>
       </header>
 
       {/* Section 1 — Companies */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-[#111827]">Empresas registradas</h2>
+        <h2 className="text-lg font-semibold text-[#0c1e3c]">Empresas registradas</h2>
         <Card>
           <Table>
             <THead>
@@ -82,7 +82,7 @@ export default async function AdminPage() {
                 const meta = REGISTRATION_META[company.registrationStatus]
                 return (
                   <Tr key={company.id}>
-                    <Td className="font-medium text-[#111827]">{company.companyName}</Td>
+                    <Td className="font-medium text-[#0c1e3c]">{company.companyName}</Td>
                     <Td>
                       <Badge className={meta.className}>{meta.label}</Badge>
                     </Td>
@@ -119,7 +119,7 @@ export default async function AdminPage() {
 
       {/* Section 2 — Users */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-[#111827]">Usuarios</h2>
+        <h2 className="text-lg font-semibold text-[#0c1e3c]">Usuarios</h2>
         <Card>
           <Table>
             <THead>
@@ -135,7 +135,7 @@ export default async function AdminPage() {
             <TBody>
               {users.map((user) => (
                 <Tr key={user.id}>
-                  <Td className="font-medium text-[#111827]">{user.name ?? '—'}</Td>
+                  <Td className="font-medium text-[#0c1e3c]">{user.name ?? '—'}</Td>
                   <Td className="text-[#6b7280]">{user.email}</Td>
                   <Td className="text-[#6b7280]">{user.company.companyName}</Td>
                   <Td>
@@ -167,12 +167,12 @@ export default async function AdminPage() {
 
       {/* Section 3 — System status */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-[#111827]">Estado del sistema</h2>
+        <h2 className="text-lg font-semibold text-[#0c1e3c]">Estado del sistema</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Card>
             <CardBody>
               <div className="text-sm text-[#6b7280]">Última ejecución (global)</div>
-              <div className="mt-1 text-lg font-semibold text-[#111827]">
+              <div className="mt-1 text-lg font-semibold text-[#0c1e3c]">
                 {lastRun ? formatRelativeTime(lastRun.startedAt) : '—'}
               </div>
             </CardBody>
@@ -180,7 +180,7 @@ export default async function AdminPage() {
           <Card>
             <CardBody>
               <div className="text-sm text-[#6b7280]">Oportunidades en la base</div>
-              <div className="mt-1 text-lg font-semibold text-[#111827]">
+              <div className="mt-1 text-lg font-semibold text-[#0c1e3c]">
                 {totalOpportunities}
               </div>
             </CardBody>
@@ -188,7 +188,7 @@ export default async function AdminPage() {
           <Card>
             <CardBody>
               <div className="text-sm text-[#6b7280]">Ejecuciones hoy</div>
-              <div className="mt-1 text-lg font-semibold text-[#111827]">{runsToday}</div>
+              <div className="mt-1 text-lg font-semibold text-[#0c1e3c]">{runsToday}</div>
             </CardBody>
           </Card>
         </div>

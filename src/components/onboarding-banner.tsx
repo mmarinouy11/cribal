@@ -25,7 +25,7 @@ export function OnboardingBanner() {
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-blue-100 bg-blue-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="text-sm text-[#111827]">
+      <div className="text-sm text-[#0c1e3c]">
         <p className="font-semibold">🎉 ¡Bienvenido a Cribal!</p>
         <p className="mt-0.5 text-[#334155]">
           El pipeline correrá automáticamente esta noche. Mientras tanto, completá tu perfil
@@ -35,14 +35,14 @@ export function OnboardingBanner() {
       <div className="flex shrink-0 gap-2">
         <Link
           href="/perfil"
-          className="rounded-lg bg-[#1e3a5f] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#16304e]"
+          className="rounded-lg bg-[#0c1e3c] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#16304e]"
         >
           Completar perfil →
         </Link>
         <button
           type="button"
           onClick={dismiss}
-          className="rounded-lg border border-[#e5e7eb] bg-white px-3 py-1.5 text-sm text-[#6b7280] hover:bg-[#f8fafc]"
+          className="rounded-lg border border-[#e0f2fe] bg-white px-3 py-1.5 text-sm text-[#6b7280] hover:bg-[#f0f9ff]"
         >
           Descartar
         </button>

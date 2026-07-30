@@ -6,15 +6,15 @@ interface StatusMeta {
   className: string
 }
 
-// Spanish label + color per opportunity status.
+// Spanish label + color per opportunity status (Navy + Cyan brand).
 export const STATUS_META: Record<OpportunityStatus, StatusMeta> = {
-  NUEVA: { label: 'Nueva', className: 'bg-blue-100 text-blue-700' },
-  REVISANDO: { label: 'Revisando', className: 'bg-amber-100 text-amber-700' },
-  RELEVANTE: { label: 'Relevante', className: 'bg-green-100 text-green-700' },
-  DESCARTADA: { label: 'Descartada', className: 'bg-gray-100 text-gray-600' },
-  CONTACTADA: { label: 'Contactada', className: 'bg-indigo-100 text-indigo-700' },
-  NO_FIT: { label: 'No aplica', className: 'bg-red-100 text-red-700' },
-  ARCHIVADA: { label: 'Archivada', className: 'bg-gray-100 text-gray-500' },
+  NUEVA: { label: 'Nueva', className: 'bg-[#f0f9ff] text-[#0e7490] border border-[#06b6d4]' },
+  REVISANDO: { label: 'Revisando', className: 'bg-[#fef9c3] text-[#854d0e]' },
+  RELEVANTE: { label: 'Relevante', className: 'bg-[#d1fae5] text-[#065f46]' },
+  DESCARTADA: { label: 'Descartada', className: 'bg-[#f1f5f9] text-[#94a3b8]' },
+  CONTACTADA: { label: 'Contactada', className: 'bg-[#ede9fe] text-[#5b21b6]' },
+  NO_FIT: { label: 'No aplica', className: 'bg-[#fee2e2] text-[#991b1b]' },
+  ARCHIVADA: { label: 'Archivada', className: 'bg-[#f1f5f9] text-[#94a3b8]' },
 }
 
 export const STATUS_OPTIONS: { value: OpportunityStatus; label: string }[] =

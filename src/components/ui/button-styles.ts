@@ -9,10 +9,11 @@ export type ButtonVariant = 'primary' | 'secondary' | 'danger'
 export type ButtonSize = 'sm' | 'md'
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: 'bg-[#1e3a5f] text-white hover:bg-[#16304e] disabled:opacity-60',
+  primary:
+    'bg-[#06b6d4] text-white hover:bg-[#0891b2] active:scale-[0.98] disabled:opacity-60',
   secondary:
-    'bg-white text-[#111827] border border-[#e5e7eb] hover:bg-[#f8fafc] disabled:opacity-60',
-  danger: 'bg-[#dc2626] text-white hover:bg-[#b91c1c] disabled:opacity-60',
+    'bg-white text-[#0c1e3c] border border-[#e0f2fe] hover:bg-[#f0f9ff] disabled:opacity-60',
+  danger: 'bg-[#ef4444] text-white hover:bg-[#dc2626] disabled:opacity-60',
 }
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {

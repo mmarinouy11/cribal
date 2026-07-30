@@ -54,7 +54,7 @@ function MetricCard({
           {icon}
         </div>
         <div className="min-w-0">
-          <div className="text-2xl font-bold text-[#111827]">{value}</div>
+          <div className="text-2xl font-bold text-[#0c1e3c]">{value}</div>
           <div className="text-sm text-[#6b7280]">{label}</div>
           {extra}
         </div>
@@ -160,7 +160,7 @@ export default async function DashboardPage() {
 
       <header className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#111827]">Dashboard</h1>
+          <h1 className="text-2xl font-bold text-[#0c1e3c]">Dashboard</h1>
           <p className="text-sm text-[#6b7280]">
             {session.user.companyName} · {formatSpanishDate(new Date())}
           </p>
@@ -182,7 +182,7 @@ export default async function DashboardPage() {
         />
         <MetricCard
           icon="🆕"
-          iconClass="bg-green-50 text-green-600"
+          iconClass="bg-[#d1fae5] text-[#059669]"
           value={newThisWeek}
           label="Nuevas esta semana"
         />
@@ -231,7 +231,7 @@ export default async function DashboardPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-medium text-[#111827]">{truncate(opp.title, 60)}</p>
+                      <p className="font-medium text-[#0c1e3c]">{truncate(opp.title, 60)}</p>
                       <p className="mt-0.5 text-sm font-semibold text-[#dc2626]">
                         CIERRA EN {businessDays} DÍA{businessDays === 1 ? '' : 'S'} HÁBIL
                         {businessDays === 1 ? '' : 'ES'}
@@ -256,9 +256,9 @@ export default async function DashboardPage() {
       )}
 
       <Card>
-        <div className="flex items-center justify-between border-b border-[#e5e7eb] px-5 py-4">
-          <h2 className="font-semibold text-[#111827]">Oportunidades recientes</h2>
-          <Link href="/oportunidades" className="text-sm text-[#2563eb] hover:underline">
+        <div className="flex items-center justify-between border-b border-[#e0f2fe] px-5 py-4">
+          <h2 className="font-semibold text-[#0c1e3c]">Oportunidades recientes</h2>
+          <Link href="/oportunidades" className="text-sm text-[#0e7490] hover:underline">
             Ver todas →
           </Link>
         </div>
@@ -288,7 +288,7 @@ export default async function DashboardPage() {
                   <Td>
                     <Link
                       href={`/oportunidades/${opp.id}`}
-                      className="font-medium text-[#1e3a5f] hover:underline"
+                      className="font-medium text-[#0c1e3c] hover:underline"
                     >
                       {truncate(opp.title, 60)}
                     </Link>

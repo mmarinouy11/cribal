@@ -19,7 +19,7 @@ export function DetailTabs({
   active: DetailTab
 }) {
   return (
-    <div className="flex gap-1 border-b border-[#e5e7eb]">
+    <div className="flex gap-1 border-b border-[#e0f2fe]">
       {TABS.map((tab) => (
         <Link
           key={tab.key}
@@ -28,8 +28,8 @@ export function DetailTabs({
           className={cn(
             '-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors',
             tab.key === active
-              ? 'border-[#1e3a5f] text-[#1e3a5f]'
-              : 'border-transparent text-[#6b7280] hover:text-[#111827]'
+              ? 'border-[#0c1e3c] text-[#0c1e3c]'
+              : 'border-transparent text-[#6b7280] hover:text-[#0c1e3c]'
           )}
         >
           {tab.label}

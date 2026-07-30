@@ -87,12 +87,12 @@ export function ProposalGenerator({
   }
 
   const textareaClass =
-    'w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]'
+    'w-full rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c] outline-none focus:border-[#06b6d4] focus:ring-1 focus:ring-[#06b6d4]'
 
   return (
-    <div className="rounded-xl border border-[#e5e7eb] bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-[#e5e7eb] px-5 py-4">
-        <h2 className="font-semibold text-[#111827]">💡 Propuesta comercial</h2>
+    <div className="rounded-xl border border-[#e0f2fe] bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-[#e0f2fe] px-5 py-4">
+        <h2 className="font-semibold text-[#0c1e3c]">💡 Propuesta comercial</h2>
         {proposal && (
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={handleRegenerate} disabled={isGenerating}>
@@ -127,7 +127,7 @@ export function ProposalGenerator({
           <div className="space-y-4">
             {SECTIONS.map((section) => (
               <div key={section.key}>
-                <label className="mb-1 block text-sm font-semibold text-[#111827]">
+                <label className="mb-1 block text-sm font-semibold text-[#0c1e3c]">
                   {section.label}
                 </label>
                 <textarea

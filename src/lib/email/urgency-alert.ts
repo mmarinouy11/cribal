@@ -65,7 +65,7 @@ export async function sendUrgencyAlert(
       <p style="margin:0 0 16px 0;font-size:14px;color:#334155;">
         <strong>Score:</strong> ${opportunity.score}/10
       </p>
-      <a href="${link}" style="display:inline-block;font-size:14px;font-weight:600;color:#ffffff;background:#1e3a5f;padding:10px 18px;border-radius:6px;text-decoration:none;">Ver oportunidad →</a>
+      <a href="${link}" style="display:inline-block;font-size:14px;font-weight:600;color:#ffffff;background:#0c1e3c;padding:10px 18px;border-radius:6px;text-decoration:none;">Ver oportunidad →</a>
     </div>
     <div style="background:#e2e8f0;padding:16px 24px;border-radius:0 0 8px 8px;text-align:center;">
       <p style="margin:0;font-size:12px;color:#64748b;">Cribal · Inteligencia de oportunidades</p>
