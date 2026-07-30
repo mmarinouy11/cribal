@@ -15,27 +15,44 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email as string },
-          include: { company: true },
-        })
+        // Emails are stored normalized at registration/seed
+        // (trim + lowercase). Normalize the lookup the same way so a different
+        // capitalization or a stray trailing space doesn't miss the user.
+        const email = (credentials.email as string).trim().toLowerCase()
 
-        if (!user) return null
+        try {
+          const user = await prisma.user.findUnique({
+            where: { email },
+            include: { company: true },
+          })
 
-        const valid = await bcrypt.compare(
-          credentials.password as string,
-          user.passwordHash
-        )
+          if (!user) {
+            console.warn(`[CRIBAL][AUTH] Login rechazado: usuario no encontrado (${email})`)
+            return null
+          }
 
-        if (!valid) return null
+          const valid = await bcrypt.compare(
+            credentials.password as string,
+            user.passwordHash
+          )
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          companyId: user.companyId,
-          companyName: user.company.companyName,
-          role: user.role,
+          if (!valid) {
+            console.warn(`[CRIBAL][AUTH] Login rechazado: contraseña inválida (${email})`)
+            return null
+          }
+
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            companyId: user.companyId,
+            companyName: user.company?.companyName ?? '',
+            role: user.role,
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          console.error(`[CRIBAL][AUTH] Error en authorize (${email}): ${message}`)
+          return null
         }
       },
     }),
