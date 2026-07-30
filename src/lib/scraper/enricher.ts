@@ -25,7 +25,7 @@ function detailUrl(externalId: string): string {
 export async function enrichOpportunity(opportunityId: string): Promise<void> {
   const opportunity = await prisma.opportunity.findUnique({
     where: { id: opportunityId },
-    select: { id: true, externalId: true, url: true, title: true },
+    select: { id: true, externalId: true, url: true, title: true, tenderType: true },
   })
   if (!opportunity) {
     console.warn(`[CRIBAL][ENRICH] Oportunidad ${opportunityId} no encontrada`)
@@ -48,9 +48,19 @@ export async function enrichOpportunity(opportunityId: string): Promise<void> {
       // The publication is already an adjudication — store its resolution data.
       const adj = parseAdjudicationDetail(html)
       data.similarAdjudications = adj as unknown as Prisma.InputJsonValue
-      console.log(
-        `[CRIBAL][ENRICH] Oportunidad enriquecida (adjudicación): ${opportunity.title} — ${adj.resolution ?? 'sin resolución'}`
-      )
+
+      // An adjudicated Compra Directa is closed: discard it so it drops out of
+      // the active views.
+      if (opportunity.tenderType === 'Compra Directa') {
+        data.status = 'DESCARTADA'
+        console.log(
+          `[CRIBAL][ENRICH] Compra Directa adjudicada detectada en enriquecimiento: ${opportunity.title} — marcada como descartada`
+        )
+      } else {
+        console.log(
+          `[CRIBAL][ENRICH] Oportunidad enriquecida (adjudicación): ${opportunity.title} — ${adj.resolution ?? 'sin resolución'}`
+        )
+      }
     } else {
       const detail = parseTenderDetail(html)
       data.closingDate = detail.closingDate

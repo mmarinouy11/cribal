@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useTransition, type ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRef, useState, useTransition, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Toast, type ToastType } from '@/components/ui/toast'
 import { TagInput } from '@/components/ui/tag-input'
+import { SaveStatusIndicator, type SaveStatus } from '@/components/config/save-status'
 import {
   updateCompanyConfig,
   testRssFeeds,
@@ -60,8 +60,6 @@ const inputClass =
   'w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]'
 
 export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
-  const router = useRouter()
-  const [isPending, startTransition] = useTransition()
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null)
   const [form, setForm] = useState<ConfigFormValues>(initial)
   const [newFeed, setNewFeed] = useState('')
@@ -69,9 +67,68 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
   const [isTesting, startTesting] = useTransition()
   const [suggestion, setSuggestion] = useState<GeneratedCompanyConfig | null>(null)
   const [isSuggesting, startSuggesting] = useTransition()
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
 
-  function set<K extends keyof ConfigFormValues>(key: K, value: ConfigFormValues[K]) {
+  // Auto-save plumbing: never overlap saves; queue the latest state instead.
+  const savingRef = useRef(false)
+  const pendingRef = useRef<ConfigFormValues | null>(null)
+  const scoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  async function flush() {
+    if (savingRef.current) return
+    const state = pendingRef.current
+    if (!state) return
+    pendingRef.current = null
+    savingRef.current = true
+    setSaveStatus('saving')
+    try {
+      await updateCompanyConfig({
+        companyName: state.companyName,
+        description: state.description,
+        notificationEmails: state.notificationEmails,
+        minimumScore: state.minimumScore,
+        lookbackDays: state.lookbackDays,
+        capabilities: state.capabilities,
+        rssFeeds: state.rssFeeds,
+        relevantKeywords: state.relevantKeywords,
+        excludedKeywords: state.excludedKeywords,
+        excludedProducts: state.excludedProducts,
+        customAiPrompt: state.customAiPrompt,
+      })
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), 3000)
+    } catch {
+      setSaveStatus('error')
+    } finally {
+      savingRef.current = false
+      if (pendingRef.current) void flush()
+    }
+  }
+
+  function requestSave(state: ConfigFormValues) {
+    pendingRef.current = state
+    void flush()
+  }
+
+  // Update a field without saving (used by text fields; save fires on blur).
+  function setField<K extends keyof ConfigFormValues>(key: K, value: ConfigFormValues[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
+    setSaveStatus('unsaved')
+  }
+
+  // Update a field and save immediately (used by selects, chips, feed edits).
+  function commitField<K extends keyof ConfigFormValues>(key: K, value: ConfigFormValues[K]) {
+    const next = { ...form, [key]: value }
+    setForm(next)
+    requestSave(next)
+  }
+
+  function onScoreChange(value: number) {
+    const next = { ...form, minimumScore: value }
+    setForm(next)
+    setSaveStatus('unsaved')
+    if (scoreTimer.current) clearTimeout(scoreTimer.current)
+    scoreTimer.current = setTimeout(() => requestSave(next), 500)
   }
 
   function handleRegenerate() {
@@ -102,20 +159,18 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
 
   function applySuggestion() {
     if (!suggestion) return
-    // Replace fields in the form only — the user still has to click "Guardar".
-    setForm((prev) => ({
-      ...prev,
+    // Apply into the form and auto-save (there is no manual save button).
+    const next: ConfigFormValues = {
+      ...form,
       rssFeeds: suggestion.rssFeeds,
       relevantKeywords: suggestion.relevantKeywords,
       excludedKeywords: suggestion.excludedKeywords,
       excludedProducts: suggestion.excludedProducts,
       minimumScore: suggestion.minimumScore,
-    }))
+    }
+    setForm(next)
+    requestSave(next)
     setSuggestion(null)
-    setToast({
-      message: 'Sugerencias aplicadas. Revisá y guardá los cambios.',
-      type: 'success',
-    })
   }
 
   function addFeed() {
@@ -124,12 +179,12 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
       setNewFeed('')
       return
     }
-    set('rssFeeds', [...form.rssFeeds, url])
+    commitField('rssFeeds', [...form.rssFeeds, url])
     setNewFeed('')
   }
 
   function removeFeed(index: number) {
-    set(
+    commitField(
       'rssFeeds',
       form.rssFeeds.filter((_, i) => i !== index)
     )
@@ -146,36 +201,13 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
     })
   }
 
-  function handleSave() {
-    startTransition(async () => {
-      try {
-        await updateCompanyConfig({
-          companyName: form.companyName,
-          description: form.description,
-          notificationEmails: form.notificationEmails,
-          minimumScore: form.minimumScore,
-          lookbackDays: form.lookbackDays,
-          capabilities: form.capabilities,
-          rssFeeds: form.rssFeeds,
-          relevantKeywords: form.relevantKeywords,
-          excludedKeywords: form.excludedKeywords,
-          excludedProducts: form.excludedProducts,
-          customAiPrompt: form.customAiPrompt,
-        })
-        setToast({ message: 'Configuración guardada', type: 'success' })
-        router.refresh()
-      } catch {
-        setToast({ message: 'No se pudo guardar la configuración', type: 'error' })
-      }
-    })
-  }
-
   return (
     <div className="space-y-4">
-      <div>
+      <div className="flex items-center justify-between">
         <Button variant="secondary" onClick={handleRegenerate} disabled={isSuggesting}>
           {isSuggesting ? 'Generando…' : '🤖 Regenerar configuración con IA'}
         </Button>
+        <SaveStatusIndicator status={saveStatus} />
       </div>
 
       {suggestion && (
@@ -234,7 +266,8 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
           <input
             type="text"
             value={form.companyName}
-            onChange={(e) => set('companyName', e.target.value)}
+            onChange={(e) => setField('companyName', e.target.value)}
+            onBlur={() => requestSave(form)}
             className={inputClass}
           />
         </Field>
@@ -242,14 +275,15 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
           <textarea
             rows={3}
             value={form.description}
-            onChange={(e) => set('description', e.target.value)}
+            onChange={(e) => setField('description', e.target.value)}
+            onBlur={() => requestSave(form)}
             className={inputClass}
           />
         </Field>
         <Field label="Emails de notificación">
           <TagInput
             values={form.notificationEmails}
-            onChange={(v) => set('notificationEmails', v)}
+            onChange={(v) => commitField('notificationEmails', v)}
             placeholder="Agregar email y Enter"
             inputType="email"
           />
@@ -261,14 +295,14 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
             max={10}
             step={1}
             value={form.minimumScore}
-            onChange={(e) => set('minimumScore', Number(e.target.value))}
+            onChange={(e) => onScoreChange(Number(e.target.value))}
             className="w-full"
           />
         </Field>
         <Field label="Días de ventana (lookback)">
           <select
             value={form.lookbackDays}
-            onChange={(e) => set('lookbackDays', Number(e.target.value))}
+            onChange={(e) => commitField('lookbackDays', Number(e.target.value))}
             className={inputClass}
           >
             {LOOKBACK_OPTIONS.map((days) => (
@@ -287,7 +321,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
         >
           <TagInput
             values={form.capabilities}
-            onChange={(v) => set('capabilities', v)}
+            onChange={(v) => commitField('capabilities', v)}
             placeholder="Agregar capacidad y Enter"
           />
         </Field>
@@ -373,14 +407,14 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
         >
           <TagInput
             values={form.relevantKeywords}
-            onChange={(v) => set('relevantKeywords', v)}
+            onChange={(v) => commitField('relevantKeywords', v)}
             placeholder="Agregar keyword y Enter"
           />
         </Field>
         <Field label="Keywords excluidas">
           <TagInput
             values={form.excludedKeywords}
-            onChange={(v) => set('excludedKeywords', v)}
+            onChange={(v) => commitField('excludedKeywords', v)}
             placeholder="Agregar keyword y Enter"
           />
         </Field>
@@ -390,7 +424,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
         >
           <TagInput
             values={form.excludedProducts}
-            onChange={(v) => set('excludedProducts', v)}
+            onChange={(v) => commitField('excludedProducts', v)}
             placeholder="Agregar producto y Enter"
           />
         </Field>
@@ -404,20 +438,15 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
           <textarea
             rows={8}
             value={form.customAiPrompt}
-            onChange={(e) => set('customAiPrompt', e.target.value)}
+            onChange={(e) => setField('customAiPrompt', e.target.value)}
+            onBlur={() => requestSave(form)}
             className={inputClass}
           />
         </Field>
-        <Button variant="secondary" onClick={() => set('customAiPrompt', '')}>
+        <Button variant="secondary" onClick={() => commitField('customAiPrompt', '')}>
           Restaurar prompt por defecto
         </Button>
       </Section>
-
-        <div className="pt-4">
-          <Button onClick={handleSave} disabled={isPending} className="w-full">
-            {isPending ? 'Guardando…' : 'Guardar configuración'}
-          </Button>
-        </div>
       </div>
 
       {toast && (

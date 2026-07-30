@@ -18,6 +18,35 @@ const REJECTION_SIGNALS: string[] = [
   'tribunal de cuentas',
   'resuelve',
   'aprobar la presente',
+  // Additional adjudication signals that appear in ARCE adjudication HTML
+  // included in RSS descriptions.
+  'adjudicada totalmente',
+  'adjudicada parcialmente',
+  'resolución nro',
+  'resolucion nro',
+  'fecha de compra',
+  'monto total de la compra',
+  'fondos rotatorios',
+  'ítems adjudicados',
+  'items adjudicados',
+  'archivo de resolución',
+  'archivo de resolucion',
+  'proveedor:', // appears in adjudication item listings
+]
+
+// Signals used only for the Compra Directa pre-check (a superset tuned for the
+// way adjudicated Compras Directas surface in the RSS feed).
+const COMPRA_DIRECTA_ADJUDICATION_SIGNALS: string[] = [
+  'adjudicada totalmente',
+  'adjudicada parcialmente',
+  'resolución',
+  'resolucion',
+  'adjudicataria',
+  'proveedor adjudicado',
+  'ítems adjudicados',
+  'items adjudicados',
+  'monto total de la compra',
+  'fecha de compra',
 ]
 
 // Open-tender signals — a match means the publication is still receiving offers.
@@ -48,6 +77,27 @@ export interface StageGateResult {
  */
 export function applyStageGate(tender: NormalizedTender): StageGateResult {
   const haystack = `${tender.title} ${tender.description}`.toLowerCase()
+
+  // Special case: adjudicated Compras Directas surface in the RSS with the same
+  // title format as open ones. Reject them before the generic checks so a closed
+  // Compra Directa never reaches the AI.
+  const isCompraDirecta =
+    tender.tenderType === 'Compra Directa' || tender.title.toLowerCase().includes('compra directa')
+
+  if (isCompraDirecta) {
+    const isAdjudicated = COMPRA_DIRECTA_ADJUDICATION_SIGNALS.some((signal) =>
+      haystack.includes(signal)
+    )
+    if (isAdjudicated) {
+      const result: StageGateResult = {
+        isOpenTender: false,
+        stage: 'Compra Directa adjudicada',
+        reason: 'Rechazado: Compra Directa ya adjudicada, no acepta ofertas.',
+      }
+      console.log(`[CRIBAL][STAGE-GATE] Rechazado: ${tender.title} — ${result.reason}`)
+      return result
+    }
+  }
 
   const rejection = REJECTION_SIGNALS.find((signal) => haystack.includes(signal))
   if (rejection) {
