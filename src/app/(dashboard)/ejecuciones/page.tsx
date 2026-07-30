@@ -46,7 +46,7 @@ export default async function RunsPage({
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-[#111827]">Historial de ejecuciones</h1>
+        <h1 className="text-2xl font-bold text-[#0c1e3c]">Historial de ejecuciones</h1>
         <RunPipelineButton label="▶ Correr ahora" />
       </header>
 
@@ -84,7 +84,7 @@ export default async function RunsPage({
                   <Td>{run.itemsAfterKeyword}</Td>
                   <Td>{run.itemsAfterStageGate}</Td>
                   <Td>{run.itemsSentToAi}</Td>
-                  <Td className="font-medium text-[#111827]">{run.opportunitiesSaved}</Td>
+                  <Td className="font-medium text-[#0c1e3c]">{run.opportunitiesSaved}</Td>
                   <Td className="whitespace-nowrap text-[#6b7280]">
                     {formatDuration(run.startedAt, run.finishedAt)}
                   </Td>

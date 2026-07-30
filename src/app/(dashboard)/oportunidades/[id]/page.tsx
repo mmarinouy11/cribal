@@ -33,7 +33,7 @@ function MetaItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-xs font-semibold uppercase tracking-wide text-[#6b7280]">{label}</div>
-      <div className="mt-0.5 text-sm text-[#111827]">{value}</div>
+      <div className="mt-0.5 text-sm text-[#0c1e3c]">{value}</div>
     </div>
   )
 }
@@ -45,7 +45,7 @@ const URGENCY_BADGE: Record<
   critical: { label: '🔴 CRÍTICO', className: 'bg-red-100 text-red-700' },
   urgent: { label: '🟠 URGENTE', className: 'bg-amber-100 text-amber-700' },
   soon: { label: '🟡 PRÓXIMO', className: 'bg-yellow-100 text-yellow-700' },
-  normal: { label: '🟢 Normal', className: 'bg-green-100 text-green-700' },
+  normal: { label: '🟢 Normal', className: 'bg-[#d1fae5] text-[#065f46]' },
 }
 
 function tenderItemsFromJson(value: Prisma.JsonValue | null): TenderItem[] {
@@ -59,7 +59,7 @@ function DateRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4 py-1 text-sm">
       <span className="text-[#6b7280]">{label}</span>
-      <span className="text-[#111827]">{value}</span>
+      <span className="text-[#0c1e3c]">{value}</span>
     </div>
   )
 }
@@ -135,7 +135,7 @@ export default async function OpportunityDetailPage({
 
   return (
     <div className="space-y-6">
-      <Link href="/oportunidades" className="text-sm text-[#2563eb] hover:underline">
+      <Link href="/oportunidades" className="text-sm text-[#0e7490] hover:underline">
         ← Volver a oportunidades
       </Link>
 
@@ -147,7 +147,7 @@ export default async function OpportunityDetailPage({
           <div className="space-y-6 lg:col-span-2">
             <Card>
               <CardBody className="space-y-4">
-                <h1 className="text-xl font-bold text-[#111827]">{opportunity.title}</h1>
+                <h1 className="text-xl font-bold text-[#0c1e3c]">{opportunity.title}</h1>
 
                 <div className="flex flex-wrap gap-2">
                   <a
@@ -161,7 +161,7 @@ export default async function OpportunityDetailPage({
                   <EnrichButton opportunityId={opportunity.id} />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 border-t border-[#e5e7eb] pt-4">
+                <div className="grid grid-cols-2 gap-4 border-t border-[#e0f2fe] pt-4">
                   <MetaItem label="Organismo" value={opportunity.organismo ?? '—'} />
                   <MetaItem label="Tipo de llamado" value={opportunity.tenderType ?? '—'} />
                   <MetaItem
@@ -171,11 +171,11 @@ export default async function OpportunityDetailPage({
                   <MetaItem label="Fuente" value={opportunity.sourceType} />
                 </div>
 
-                <div className="border-t border-[#e5e7eb] pt-4">
+                <div className="border-t border-[#e0f2fe] pt-4">
                   {opportunity.stageGatePassed === false ? (
                     <Badge className="bg-red-100 text-red-700">❌ Adjudicación/cierre</Badge>
                   ) : (
-                    <Badge className="bg-green-100 text-green-700">✅ Llamado abierto</Badge>
+                    <Badge className="bg-[#d1fae5] text-[#065f46]">✅ Llamado abierto</Badge>
                   )}
                   {opportunity.stageGateReason && (
                     <p className="mt-2 text-sm text-[#6b7280]">{opportunity.stageGateReason}</p>
@@ -189,7 +189,7 @@ export default async function OpportunityDetailPage({
               <Card>
                 <CardBody>
                   <div className="mb-3 flex items-center justify-between">
-                    <h3 className="font-semibold text-[#111827]">📅 Fechas clave</h3>
+                    <h3 className="font-semibold text-[#0c1e3c]">📅 Fechas clave</h3>
                     {urgencyBadge && (
                       <Badge className={urgencyBadge.className}>{urgencyBadge.label}</Badge>
                     )}
@@ -223,12 +223,12 @@ export default async function OpportunityDetailPage({
             {/* Tender items */}
             {items.length > 0 && (
               <Card>
-                <div className="border-b border-[#e5e7eb] px-5 py-4">
-                  <h3 className="font-semibold text-[#111827]">Ítems del llamado ({items.length})</h3>
+                <div className="border-b border-[#e0f2fe] px-5 py-4">
+                  <h3 className="font-semibold text-[#0c1e3c]">Ítems del llamado ({items.length})</h3>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-[#f8fafc]">
+                    <thead className="bg-[#f0f9ff]">
                       <tr className="text-left text-xs uppercase text-[#6b7280]">
                         <th className="px-4 py-2">Ítem #</th>
                         <th className="px-4 py-2">Nombre</th>
@@ -236,11 +236,11 @@ export default async function OpportunityDetailPage({
                         <th className="px-4 py-2">Cantidad</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#e5e7eb]">
+                    <tbody className="divide-y divide-[#e0f2fe]">
                       {items.map((item, i) => (
                         <tr key={`${item.itemNumber}-${i}`}>
                           <td className="px-4 py-2 text-[#6b7280]">{item.itemNumber}</td>
-                          <td className="px-4 py-2 text-[#111827]">{item.name}</td>
+                          <td className="px-4 py-2 text-[#0c1e3c]">{item.name}</td>
                           <td className="px-4 py-2 text-[#6b7280]">{item.articleCode ?? '—'}</td>
                           <td className="px-4 py-2 text-[#6b7280]">{item.quantity ?? '—'}</td>
                         </tr>
@@ -255,7 +255,7 @@ export default async function OpportunityDetailPage({
             {hasContact && (
               <Card>
                 <CardBody className="space-y-1">
-                  <h3 className="mb-2 font-semibold text-[#111827]">Contacto</h3>
+                  <h3 className="mb-2 font-semibold text-[#0c1e3c]">Contacto</h3>
                   {opportunity.contactName && (
                     <DateRow label="Nombre" value={opportunity.contactName} />
                   )}
@@ -270,7 +270,7 @@ export default async function OpportunityDetailPage({
                       href={opportunity.pliegoUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-2 inline-block text-sm text-[#2563eb] hover:underline"
+                      className="mt-2 inline-block text-sm text-[#0e7490] hover:underline"
                     >
                       📄 Descargar pliego (PDF)
                     </a>
@@ -298,8 +298,8 @@ export default async function OpportunityDetailPage({
                   <CategoryBadge category={opportunity.category} />
                 </div>
 
-                <div className="h-2 w-full overflow-hidden rounded-full bg-[#e5e7eb]">
-                  <div className="h-full rounded-full bg-[#2563eb]" style={{ width: scoreWidth }} />
+                <div className="h-2 w-full overflow-hidden rounded-full bg-[#e0f2fe]">
+                  <div className="h-full rounded-full bg-[#06b6d4]" style={{ width: scoreWidth }} />
                 </div>
 
                 {opportunity.summary && (
@@ -307,14 +307,14 @@ export default async function OpportunityDetailPage({
                     <div className="text-xs font-semibold uppercase tracking-wide text-[#6b7280]">
                       Resumen IA
                     </div>
-                    <p className="mt-1 text-sm text-[#111827]">{opportunity.summary}</p>
+                    <p className="mt-1 text-sm text-[#0c1e3c]">{opportunity.summary}</p>
                   </div>
                 )}
 
                 {opportunity.recommendedPlay && (
                   <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-                    <div className="text-sm font-semibold text-[#1e3a5f]">💡 Jugada recomendada</div>
-                    <p className="mt-1 text-sm text-[#111827]">{opportunity.recommendedPlay}</p>
+                    <div className="text-sm font-semibold text-[#0c1e3c]">💡 Jugada recomendada</div>
+                    <p className="mt-1 text-sm text-[#0c1e3c]">{opportunity.recommendedPlay}</p>
                   </div>
                 )}
               </CardBody>
@@ -324,7 +324,7 @@ export default async function OpportunityDetailPage({
               <Card>
                 <CardBody>
                   <details>
-                    <summary className="cursor-pointer text-sm font-semibold text-[#111827]">
+                    <summary className="cursor-pointer text-sm font-semibold text-[#0c1e3c]">
                       Descripción original
                     </summary>
                     <p className="mt-3 whitespace-pre-wrap text-sm text-[#374151]">
@@ -339,10 +339,10 @@ export default async function OpportunityDetailPage({
               <Card>
                 <CardBody>
                   <details>
-                    <summary className="cursor-pointer text-sm font-semibold text-[#111827]">
+                    <summary className="cursor-pointer text-sm font-semibold text-[#0c1e3c]">
                       Salida cruda de la IA (debug)
                     </summary>
-                    <pre className="mt-3 overflow-x-auto rounded-lg bg-[#0f172a] p-4 text-xs text-white">
+                    <pre className="mt-3 overflow-x-auto rounded-lg bg-[#0c1e3c] p-4 text-xs text-white">
                       {rawOutput}
                     </pre>
                   </details>
@@ -355,7 +355,7 @@ export default async function OpportunityDetailPage({
           <div className="space-y-4">
             <Card>
               <CardBody>
-                <h2 className="mb-4 font-semibold text-[#111827]">Revisión</h2>
+                <h2 className="mb-4 font-semibold text-[#0c1e3c]">Revisión</h2>
                 <ReviewPanel
                   id={opportunity.id}
                   status={opportunity.status}
@@ -370,11 +370,11 @@ export default async function OpportunityDetailPage({
             <Card>
               <CardBody className="space-y-2 text-sm text-[#6b7280]">
                 <div>
-                  <span className="font-medium text-[#111827]">Detectada:</span>{' '}
+                  <span className="font-medium text-[#0c1e3c]">Detectada:</span>{' '}
                   {formatDateTime(opportunity.detectedAt)}
                 </div>
                 <div className="break-all">
-                  <span className="font-medium text-[#111827]">Run ID:</span> {opportunity.runId}
+                  <span className="font-medium text-[#0c1e3c]">Run ID:</span> {opportunity.runId}
                 </div>
               </CardBody>
             </Card>

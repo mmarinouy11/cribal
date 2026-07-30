@@ -39,7 +39,7 @@ export function Pagination({
   const prevDisabled = currentPage <= 1
   const nextDisabled = currentPage >= totalPages
 
-  const linkClass = 'rounded-lg border border-[#e5e7eb] bg-white px-3 py-1.5 text-sm'
+  const linkClass = 'rounded-lg border border-[#e0f2fe] bg-white px-3 py-1.5 text-sm'
 
   return (
     <nav className="mt-4 flex items-center justify-between" aria-label="Paginación">
@@ -50,7 +50,7 @@ export function Pagination({
           linkClass,
           prevDisabled
             ? 'pointer-events-none opacity-50'
-            : 'hover:bg-[#f8fafc]'
+            : 'hover:bg-[#f0f9ff]'
         )}
       >
         ← Anterior
@@ -63,7 +63,7 @@ export function Pagination({
         aria-disabled={nextDisabled}
         className={cn(
           linkClass,
-          nextDisabled ? 'pointer-events-none opacity-50' : 'hover:bg-[#f8fafc]'
+          nextDisabled ? 'pointer-events-none opacity-50' : 'hover:bg-[#f0f9ff]'
         )}
       >
         Siguiente →

@@ -13,7 +13,7 @@ interface ToastProps {
 }
 
 const TYPE_CLASSES: Record<ToastType, string> = {
-  success: 'bg-[#16a34a] text-white',
+  success: 'bg-[#10b981] text-white',
   error: 'bg-[#dc2626] text-white',
 }
 

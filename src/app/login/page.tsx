@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { signIn } from 'next-auth/react'
+import { LogoMark } from '@/components/ui/logo'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -34,16 +35,24 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0f172a] px-4">
+    <div className="flex min-h-screen items-center justify-center bg-[#0c1e3c] px-4">
       <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-2xl">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-[#111827]">🔎 Cribal</h1>
-          <p className="mt-1 text-sm text-[#6b7280]">Inteligencia de oportunidades</p>
+          <div className="flex items-center justify-center gap-2.5">
+            <LogoMark size={32} />
+            <span
+              className="text-2xl font-semibold text-[#0c1e3c]"
+              style={{ letterSpacing: '-0.5px' }}
+            >
+              cribal
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-[#64748b]">Inteligencia de oportunidades</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="email" className="mb-1 block text-sm font-medium text-[#111827]">
+            <label htmlFor="email" className="mb-1 block text-sm font-medium text-[#0c1e3c]">
               Email
             </label>
             <input
@@ -53,14 +62,14 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]"
+              className="w-full rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c] outline-none focus:border-[#06b6d4] focus:ring-1 focus:ring-[#06b6d4]"
             />
           </div>
 
           <div>
             <label
               htmlFor="password"
-              className="mb-1 block text-sm font-medium text-[#111827]"
+              className="mb-1 block text-sm font-medium text-[#0c1e3c]"
             >
               Contraseña
             </label>
@@ -71,7 +80,7 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]"
+              className="w-full rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c] outline-none focus:border-[#06b6d4] focus:ring-1 focus:ring-[#06b6d4]"
             />
           </div>
 
@@ -82,7 +91,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-[#1e3a5f] py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#16304e] disabled:opacity-60"
+            className="w-full rounded-lg bg-[#06b6d4] py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#0891b2] active:scale-[0.98] disabled:opacity-60"
           >
             {loading ? 'Ingresando…' : 'Iniciar sesión'}
           </button>

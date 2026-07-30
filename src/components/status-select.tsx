@@ -33,7 +33,7 @@ export function StatusSelect({ id, status }: StatusSelectProps) {
       disabled={isPending}
       onChange={(e) => handleChange(e.target.value as OpportunityStatus)}
       onClick={(e) => e.stopPropagation()}
-      className="rounded-lg border border-[#e5e7eb] bg-white px-2 py-1 text-xs text-[#111827] disabled:opacity-60"
+      className="rounded-lg border border-[#e0f2fe] bg-white px-2 py-1 text-xs text-[#0c1e3c] disabled:opacity-60"
     >
       {STATUS_OPTIONS.map((option) => (
         <option key={option.value} value={option.value}>

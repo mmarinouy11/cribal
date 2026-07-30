@@ -16,8 +16,8 @@ export interface ProfileFormValues {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-t border-[#e5e7eb] py-6 first:border-t-0 first:pt-0">
-      <h2 className="mb-4 text-lg font-semibold text-[#111827]">{title}</h2>
+    <section className="border-t border-[#e0f2fe] py-6 first:border-t-0 first:pt-0">
+      <h2 className="mb-4 text-lg font-semibold text-[#0c1e3c]">{title}</h2>
       <div className="space-y-4">{children}</div>
     </section>
   )
@@ -34,7 +34,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-[#111827]">{label}</label>
+      <label className="mb-1 block text-sm font-medium text-[#0c1e3c]">{label}</label>
       {children}
       {helper && <p className="mt-1 text-xs text-[#6b7280]">{helper}</p>}
     </div>
@@ -42,7 +42,7 @@ function Field({
 }
 
 const inputClass =
-  'w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]'
+  'w-full rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c] outline-none focus:border-[#06b6d4] focus:ring-1 focus:ring-[#06b6d4]'
 
 export function ProfileForm({ initial }: { initial: ProfileFormValues }) {
   const [form, setForm] = useState<ProfileFormValues>(initial)
@@ -87,7 +87,7 @@ export function ProfileForm({ initial }: { initial: ProfileFormValues }) {
         <SaveStatusIndicator status={saveStatus} />
       </div>
 
-      <div className="rounded-xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
+      <div className="rounded-xl border border-[#e0f2fe] bg-white p-6 shadow-sm">
         <Section title="Sobre la empresa">
           <Field
             label="Descripción completa"

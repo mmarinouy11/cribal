@@ -23,10 +23,10 @@ const MAX_DOTS = 3
 
 function dotColor(opp: TimelineOpportunity): string {
   const businessDays = getBusinessDaysUntilClosing(opp.closingDate)
-  if (businessDays <= 1) return '#dc2626' // critical
-  if (businessDays <= 3) return '#d97706' // urgent
-  if (opp.score >= 7) return '#2563eb' // relevant
-  return '#9ca3af' // new / other
+  if (businessDays <= 1) return '#ef4444' // critical
+  if (businessDays <= 3) return '#f59e0b' // urgent
+  if (opp.score >= 7) return '#06b6d4' // relevant (cyan)
+  return '#cbd5e1' // new / other
 }
 
 function shortWeekday(date: Date): string {
@@ -66,16 +66,16 @@ export function ClosingTimeline({ opportunities }: ClosingTimelineProps) {
   const hasAny = opportunities.length > 0
 
   const legend: { color: string; label: string }[] = [
-    { color: '#dc2626', label: 'Crítico (≤1 día)' },
-    { color: '#d97706', label: 'Urgente (2-3 días)' },
-    { color: '#2563eb', label: 'Relevante' },
-    { color: '#9ca3af', label: 'Nueva' },
+    { color: '#ef4444', label: 'Crítico (≤1 día)' },
+    { color: '#f59e0b', label: 'Urgente (2-3 días)' },
+    { color: '#06b6d4', label: 'Relevante' },
+    { color: '#cbd5e1', label: 'Nueva' },
   ]
 
   return (
-    <div className="rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-sm">
+    <div className="rounded-xl border border-[#e0f2fe] bg-white p-5 shadow-sm">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-xs font-bold uppercase tracking-wide text-[#111827]">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-[#0c1e3c]">
           Timeline de cierres
         </h2>
         <div className="flex flex-wrap gap-3">
@@ -110,14 +110,14 @@ export function ClosingTimeline({ opportunities }: ClosingTimelineProps) {
                   key={day.getTime()}
                   className={cn(
                     'flex w-20 shrink-0 flex-col items-center rounded-lg px-1 py-2',
-                    weekend && 'bg-[#f8fafc]',
-                    isToday && 'border-l-4 border-[#16a34a] bg-[#f0fdf4]'
+                    weekend && 'bg-[#f0f9ff]',
+                    isToday && 'border-l-4 border-[#06b6d4] bg-[#ecfeff]'
                   )}
                 >
                   <div
                     className={cn(
                       'text-xs capitalize',
-                      isToday ? 'font-bold text-[#16a34a]' : 'text-[#6b7280]'
+                      isToday ? 'font-bold text-[#0e7490]' : 'text-[#6b7280]'
                     )}
                   >
                     {isToday ? 'Hoy' : shortWeekday(day)}

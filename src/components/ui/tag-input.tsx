@@ -46,11 +46,11 @@ export function TagInput({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#e5e7eb] bg-white p-2">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#e0f2fe] bg-white p-2">
       {values.map((value, index) => (
         <span
           key={`${value}-${index}`}
-          className="inline-flex items-center gap-1 rounded-full bg-[#eef2ff] px-2.5 py-1 text-xs font-medium text-[#1e3a5f]"
+          className="inline-flex items-center gap-1 rounded-full bg-[#eef2ff] px-2.5 py-1 text-xs font-medium text-[#0c1e3c]"
         >
           {value}
           <button
@@ -70,7 +70,7 @@ export function TagInput({
         onKeyDown={handleKeyDown}
         onBlur={() => addChip(draft)}
         placeholder={placeholder}
-        className="min-w-[140px] flex-1 border-none px-1 py-1 text-sm text-[#111827] outline-none"
+        className="min-w-[140px] flex-1 border-none px-1 py-1 text-sm text-[#0c1e3c] outline-none"
       />
     </div>
   )

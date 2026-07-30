@@ -33,8 +33,8 @@ const LOOKBACK_OPTIONS = [1, 2, 3, 4, 5, 6, 7]
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-t border-[#e5e7eb] py-6 first:border-t-0 first:pt-0">
-      <h2 className="mb-4 text-lg font-semibold text-[#111827]">{title}</h2>
+    <section className="border-t border-[#e0f2fe] py-6 first:border-t-0 first:pt-0">
+      <h2 className="mb-4 text-lg font-semibold text-[#0c1e3c]">{title}</h2>
       <div className="space-y-4">{children}</div>
     </section>
   )
@@ -51,7 +51,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-[#111827]">{label}</label>
+      <label className="mb-1 block text-sm font-medium text-[#0c1e3c]">{label}</label>
       {children}
       {helper && <p className="mt-1 text-xs text-[#6b7280]">{helper}</p>}
     </div>
@@ -59,7 +59,7 @@ function Field({
 }
 
 const inputClass =
-  'w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]'
+  'w-full rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c] outline-none focus:border-[#06b6d4] focus:ring-1 focus:ring-[#06b6d4]'
 
 export function ConfigForm({
   initial,
@@ -220,14 +220,14 @@ export function ConfigForm({
 
       {suggestion && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
-          <h2 className="font-semibold text-[#1e3a5f]">🤖 Configuración sugerida por IA</h2>
+          <h2 className="font-semibold text-[#0c1e3c]">🤖 Configuración sugerida por IA</h2>
           {suggestion.reasoning && (
-            <p className="mt-2 text-sm text-[#111827]">💡 {suggestion.reasoning}</p>
+            <p className="mt-2 text-sm text-[#0c1e3c]">💡 {suggestion.reasoning}</p>
           )}
 
           <div className="mt-4 space-y-3 text-sm">
             <div>
-              <p className="font-medium text-[#111827]">Feeds RSS sugeridos:</p>
+              <p className="font-medium text-[#0c1e3c]">Feeds RSS sugeridos:</p>
               <ul className="mt-1 space-y-0.5 text-[#334155]">
                 {suggestion.rssFeeds.map((feed) => (
                   <li key={feed} className="break-all">
@@ -237,7 +237,7 @@ export function ConfigForm({
               </ul>
             </div>
             <div>
-              <p className="font-medium text-[#111827]">
+              <p className="font-medium text-[#0c1e3c]">
                 Keywords relevantes (+{suggestion.relevantKeywords.length}):
               </p>
               <p className="mt-1 text-[#334155]">
@@ -245,7 +245,7 @@ export function ConfigForm({
               </p>
             </div>
             <div>
-              <p className="font-medium text-[#111827]">
+              <p className="font-medium text-[#0c1e3c]">
                 Keywords excluidos (+{suggestion.excludedKeywords.length}):
               </p>
               <p className="mt-1 text-[#334155]">
@@ -253,7 +253,7 @@ export function ConfigForm({
               </p>
             </div>
             <div>
-              <p className="font-medium text-[#111827]">
+              <p className="font-medium text-[#0c1e3c]">
                 Score mínimo sugerido: {suggestion.minimumScore}
               </p>
             </div>
@@ -268,7 +268,7 @@ export function ConfigForm({
         </div>
       )}
 
-      <div className="rounded-xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
+      <div className="rounded-xl border border-[#e0f2fe] bg-white p-6 shadow-sm">
         <Section title="Información general">
         <Field label="Nombre de la empresa">
           <input
@@ -359,9 +359,9 @@ export function ConfigForm({
           {form.rssFeeds.map((feed, index) => (
             <div
               key={`${feed}-${index}`}
-              className="flex items-center gap-2 rounded-lg border border-[#e5e7eb] px-3 py-2"
+              className="flex items-center gap-2 rounded-lg border border-[#e0f2fe] px-3 py-2"
             >
-              <span className="flex-1 break-all text-sm text-[#111827]">{feed}</span>
+              <span className="flex-1 break-all text-sm text-[#0c1e3c]">{feed}</span>
               <button
                 type="button"
                 onClick={() => removeFeed(index)}
@@ -405,7 +405,7 @@ export function ConfigForm({
                 <th className="py-2">Estado</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#e5e7eb]">
+            <tbody className="divide-y divide-[#e0f2fe]">
               {feedResults.map((result) => (
                 <tr key={result.feed}>
                   <td className="break-all py-2 pr-4 text-[#374151]">{result.feed}</td>
@@ -414,7 +414,7 @@ export function ConfigForm({
                     {result.error ? (
                       <span className="text-[#dc2626]">Error</span>
                     ) : (
-                      <span className="text-[#16a34a]">OK</span>
+                      <span className="text-[#065f46]">OK</span>
                     )}
                   </td>
                 </tr>

@@ -3,20 +3,40 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  /* Brand */
+  --brand-sidebar: #0c1e3c; /* Deep navy — sidebar background */
+  --brand-sidebar-hover: #162d52; /* Slightly lighter navy — hover/active states */
+  --brand-sidebar-border: #1e3a5f; /* Subtle border inside sidebar */
+  --brand-accent: #06b6d4; /* Cyan — primary accent */
+  --brand-accent-hover: #0891b2; /* Cyan darker — hover */
+  --brand-accent-light: #cffafe; /* Cyan tint — badge backgrounds */
+  --brand-accent-text: #0e7490; /* Cyan dark — text on light cyan bg */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Content area */
+  --brand-bg: #f0f9ff; /* Very light cyan tint — page background */
+  --brand-card: #ffffff; /* Card surfaces */
+  --brand-border: #e0f2fe; /* Subtle cyan-tinted border */
+
+  /* Text */
+  --brand-text-primary: #0c1e3c; /* Deep navy for headings */
+  --brand-text-secondary: #475569; /* Slate for body */
+  --brand-text-muted: #94a3b8; /* Light slate for meta */
+
+  /* Semantic (keep these for status badges) */
+  --brand-success: #10b981;
+  --brand-success-light: #d1fae5;
+  --brand-success-text: #065f46;
+  --brand-warning: #f59e0b;
+  --brand-warning-light: #fef3c7;
+  --brand-warning-text: #92400e;
+  --brand-danger: #ef4444;
+  --brand-danger-light: #fee2e2;
+  --brand-danger-text: #991b1b;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
+  color: var(--brand-text-secondary);
+  background: var(--brand-bg);
   font-family: Arial, Helvetica, sans-serif;
 }
 

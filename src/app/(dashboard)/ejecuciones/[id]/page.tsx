@@ -70,7 +70,7 @@ function FunnelStage({
         <div
           className={cn(
             'flex h-full items-center rounded px-2 text-xs font-semibold text-white',
-            isLast ? 'bg-[#16a34a]' : 'bg-[#1e3a5f]'
+            isLast ? 'bg-[#06b6d4]' : 'bg-[#0c1e3c]'
           )}
           style={{ width }}
         >
@@ -137,13 +137,13 @@ export default async function RunDetailPage({
 
   return (
     <div className="space-y-6">
-      <Link href="/ejecuciones" className="text-sm text-[#2563eb] hover:underline">
+      <Link href="/ejecuciones" className="text-sm text-[#0e7490] hover:underline">
         ← Volver a ejecuciones
       </Link>
 
       <header className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#111827]">Ejecución</h1>
+          <h1 className="text-2xl font-bold text-[#0c1e3c]">Ejecución</h1>
           <p className="text-sm text-[#6b7280]">{formatDateTime(run.startedAt)}</p>
         </div>
         <RunStatusBadge status={run.status} />
@@ -153,28 +153,28 @@ export default async function RunDetailPage({
         <CardBody className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-[#6b7280]">Inicio</div>
-            <div className="mt-0.5 text-sm text-[#111827]">{formatDateTime(run.startedAt)}</div>
+            <div className="mt-0.5 text-sm text-[#0c1e3c]">{formatDateTime(run.startedAt)}</div>
           </div>
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-[#6b7280]">Fin</div>
-            <div className="mt-0.5 text-sm text-[#111827]">{formatDateTime(run.finishedAt)}</div>
+            <div className="mt-0.5 text-sm text-[#0c1e3c]">{formatDateTime(run.finishedAt)}</div>
           </div>
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-[#6b7280]">Duración</div>
-            <div className="mt-0.5 text-sm text-[#111827]">
+            <div className="mt-0.5 text-sm text-[#0c1e3c]">
               {formatDuration(run.startedAt, run.finishedAt)}
             </div>
           </div>
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-[#6b7280]">Feeds</div>
-            <div className="mt-0.5 text-sm text-[#111827]">{run.feedsChecked}</div>
+            <div className="mt-0.5 text-sm text-[#0c1e3c]">{run.feedsChecked}</div>
           </div>
         </CardBody>
       </Card>
 
       <Card>
-        <div className="border-b border-[#e5e7eb] px-5 py-4">
-          <h2 className="font-semibold text-[#111827]">Embudo del pipeline</h2>
+        <div className="border-b border-[#e0f2fe] px-5 py-4">
+          <h2 className="font-semibold text-[#0c1e3c]">Embudo del pipeline</h2>
         </div>
         <CardBody className="space-y-2">
           {funnelStages.map((stage, index) => (
@@ -191,8 +191,8 @@ export default async function RunDetailPage({
 
       {errors.length > 0 && (
         <Card>
-          <div className="border-b border-[#e5e7eb] px-5 py-4">
-            <h2 className="font-semibold text-[#111827]">Errores ({errors.length})</h2>
+          <div className="border-b border-[#e0f2fe] px-5 py-4">
+            <h2 className="font-semibold text-[#0c1e3c]">Errores ({errors.length})</h2>
           </div>
           <CardBody className="space-y-2">
             {errors.map((error, index) => (
@@ -201,7 +201,7 @@ export default async function RunDetailPage({
                 className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm"
               >
                 <span className="font-semibold text-[#dc2626]">{error.stage}:</span>{' '}
-                <span className="text-[#111827]">{error.message}</span>
+                <span className="text-[#0c1e3c]">{error.message}</span>
               </div>
             ))}
           </CardBody>
@@ -209,8 +209,8 @@ export default async function RunDetailPage({
       )}
 
       <Card>
-        <div className="border-b border-[#e5e7eb] px-5 py-4">
-          <h2 className="font-semibold text-[#111827]">
+        <div className="border-b border-[#e0f2fe] px-5 py-4">
+          <h2 className="font-semibold text-[#0c1e3c]">
             Oportunidades guardadas ({savedOpportunities.length})
           </h2>
         </div>
@@ -234,7 +234,7 @@ export default async function RunDetailPage({
                   <Td>
                     <Link
                       href={`/oportunidades/${opp.id}`}
-                      className="font-medium text-[#1e3a5f] hover:underline"
+                      className="font-medium text-[#0c1e3c] hover:underline"
                     >
                       {truncate(opp.title, 60)}
                     </Link>
@@ -254,10 +254,10 @@ export default async function RunDetailPage({
       </Card>
 
       <Card>
-        <div className="border-b border-[#e5e7eb] px-5 py-4">
-          <h2 className="font-semibold text-[#111827]">Publicaciones crudas</h2>
+        <div className="border-b border-[#e0f2fe] px-5 py-4">
+          <h2 className="font-semibold text-[#0c1e3c]">Publicaciones crudas</h2>
         </div>
-        <div className="flex flex-wrap gap-2 border-b border-[#e5e7eb] px-5 py-3">
+        <div className="flex flex-wrap gap-2 border-b border-[#e0f2fe] px-5 py-3">
           {RAW_TABS.map((tab) => (
             <Link
               key={tab.key}
@@ -265,8 +265,8 @@ export default async function RunDetailPage({
               className={cn(
                 'rounded-full px-3 py-1 text-xs font-medium',
                 tab.key === activeTab.key
-                  ? 'bg-[#1e3a5f] text-white'
-                  : 'bg-[#f1f5f9] text-[#6b7280] hover:bg-[#e5e7eb]'
+                  ? 'bg-[#0c1e3c] text-white'
+                  : 'bg-[#f1f5f9] text-[#6b7280] hover:bg-[#e0f2fe]'
               )}
             >
               {tab.label}

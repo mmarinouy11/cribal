@@ -58,7 +58,7 @@ export function ReviewPanel({
   }
 
   const inputClass =
-    'w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]'
+    'w-full rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c] outline-none focus:border-[#06b6d4] focus:ring-1 focus:ring-[#06b6d4]'
   const labelClass = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-[#6b7280]'
 
   return (

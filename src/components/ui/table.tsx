@@ -10,11 +10,11 @@ export function Table({ children, className }: { children: ReactNode; className?
 }
 
 export function THead({ children }: { children: ReactNode }) {
-  return <thead className="bg-[#f8fafc]">{children}</thead>
+  return <thead className="bg-[#f0f9ff]">{children}</thead>
 }
 
 export function TBody({ children }: { children: ReactNode }) {
-  return <tbody className="divide-y divide-[#e5e7eb]">{children}</tbody>
+  return <tbody className="divide-y divide-[#e0f2fe]">{children}</tbody>
 }
 
 interface TrProps extends HTMLAttributes<HTMLTableRowElement> {
@@ -23,7 +23,7 @@ interface TrProps extends HTMLAttributes<HTMLTableRowElement> {
 
 export function Tr({ children, className, ...props }: TrProps) {
   return (
-    <tr className={cn('hover:bg-[#f8fafc]', className)} {...props}>
+    <tr className={cn('hover:bg-[#f0f9ff]', className)} {...props}>
       {children}
     </tr>
   )
@@ -53,7 +53,7 @@ interface TdProps extends TdHTMLAttributes<HTMLTableCellElement> {
 
 export function Td({ children, className, ...props }: TdProps) {
   return (
-    <td className={cn('px-4 py-3 text-[#111827] align-middle', className)} {...props}>
+    <td className={cn('px-4 py-3 text-[#0c1e3c] align-middle', className)} {...props}>
       {children}
     </td>
   )

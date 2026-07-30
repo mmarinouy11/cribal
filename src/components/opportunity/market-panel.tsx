@@ -38,7 +38,7 @@ function formatMoney(amount: number, currency: string): string {
 }
 
 function Card({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-sm">{children}</div>
+  return <div className="rounded-xl border border-[#e0f2fe] bg-white p-5 shadow-sm">{children}</div>
 }
 
 export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProps) {
@@ -83,8 +83,8 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
     return (
       <Card>
         <div className="flex items-center gap-3 py-6">
-          <span className="h-5 w-5 animate-spin rounded-full border-2 border-[#1e3a5f] border-t-transparent" />
-          <span className="text-sm text-[#111827]">
+          <span className="h-5 w-5 animate-spin rounded-full border-2 border-[#0c1e3c] border-t-transparent" />
+          <span className="text-sm text-[#0c1e3c]">
             Analizando mercado… esto puede tomar 30-60 segundos
           </span>
         </div>
@@ -96,7 +96,7 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
     return (
       <>
         <Card>
-          <h2 className="font-semibold text-[#111827]">📊 Análisis de mercado</h2>
+          <h2 className="font-semibold text-[#0c1e3c]">📊 Análisis de mercado</h2>
           <p className="mt-2 text-sm text-[#6b7280]">
             Buscá licitaciones históricas similares, identificá competidores y obtené
             referencias de precio para preparar tu oferta.
@@ -125,7 +125,7 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
     <div className="space-y-6">
       {/* Adjudicaciones similares */}
       <Card>
-        <h2 className="mb-3 font-semibold text-[#111827]">
+        <h2 className="mb-3 font-semibold text-[#0c1e3c]">
           Adjudicaciones similares ({adjudications.length})
         </h2>
         {adjudications.length === 0 ? (
@@ -143,15 +143,15 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
                   <th className="py-2">Link</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#e5e7eb]">
+              <tbody className="divide-y divide-[#e0f2fe]">
                 {adjudications.map((adj, i) => (
                   <tr key={`${adj.tenderId}-${i}`}>
                     <td className="py-2 pr-4 text-[#6b7280]">{adj.organismo || '—'}</td>
-                    <td className="py-2 pr-4 text-[#111827]">
+                    <td className="py-2 pr-4 text-[#0c1e3c]">
                       {adj.objeto.length > 50 ? `${adj.objeto.slice(0, 50)}…` : adj.objeto}
                     </td>
-                    <td className="py-2 pr-4 text-[#111827]">{adj.adjudicatedTo}</td>
-                    <td className="py-2 pr-4 text-[#111827]">
+                    <td className="py-2 pr-4 text-[#0c1e3c]">{adj.adjudicatedTo}</td>
+                    <td className="py-2 pr-4 text-[#0c1e3c]">
                       {adj.amount !== null ? formatMoney(adj.amount, adj.currency) : '—'}
                     </td>
                     <td className="py-2 pr-4 text-[#6b7280]">
@@ -162,7 +162,7 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
                         href={adj.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[#2563eb] hover:underline"
+                        className="text-[#0e7490] hover:underline"
                       >
                         Ver
                       </a>
@@ -177,7 +177,7 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
 
       {/* Mapa de competidores */}
       <Card>
-        <h2 className="mb-3 font-semibold text-[#111827]">
+        <h2 className="mb-3 font-semibold text-[#0c1e3c]">
           Mapa de competidores ({competitors.length})
         </h2>
         {competitors.length === 0 ? (
@@ -185,8 +185,8 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {competitors.map((comp, i) => (
-              <div key={`${comp.rut}-${i}`} className="rounded-lg border border-[#e5e7eb] p-4">
-                <p className="font-semibold text-[#1e3a5f]">{comp.name}</p>
+              <div key={`${comp.rut}-${i}`} className="rounded-lg border border-[#e0f2fe] p-4">
+                <p className="font-semibold text-[#0c1e3c]">{comp.name}</p>
                 <p className="mt-1 text-sm text-[#334155]">
                   Participaciones: {comp.timesParticipated} · Ganadas: {comp.timesWon} · Win
                   rate: {Math.round(comp.winRate * 100)}%
@@ -212,7 +212,7 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
 
       {/* Inteligencia de precios */}
       <Card>
-        <h2 className="mb-3 font-semibold text-[#111827]">Inteligencia de precios</h2>
+        <h2 className="mb-3 font-semibold text-[#0c1e3c]">Inteligencia de precios</h2>
         {priceRange.sampleSize === 0 ? (
           <p className="text-sm text-[#6b7280]">
             Sin datos de precios suficientes para esta licitación.
@@ -222,9 +222,9 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
             <p className="mb-2 text-sm text-[#6b7280]">
               Precio unitario histórico ({priceRange.sampleSize} muestras)
             </p>
-            <div className="relative mt-4 h-3 w-full rounded-full bg-[#e5e7eb]">
+            <div className="relative mt-4 h-3 w-full rounded-full bg-[#e0f2fe]">
               <div
-                className="absolute top-0 h-3 rounded-full bg-[#2563eb]"
+                className="absolute top-0 h-3 rounded-full bg-[#06b6d4]"
                 style={{ left: `${lowPct}%`, width: `${Math.max(4, highPct - lowPct)}%` }}
               />
             </div>
@@ -232,7 +232,7 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
               <span>{formatMoney(priceRange.min, currency)}</span>
               <span>{formatMoney(priceRange.max, currency)}</span>
             </div>
-            <p className="mt-3 text-sm font-semibold text-[#1e3a5f]">
+            <p className="mt-3 text-sm font-semibold text-[#0c1e3c]">
               Sugerido: {formatMoney(priceRange.suggestedRange.low, currency)} –{' '}
               {formatMoney(priceRange.suggestedRange.high, currency)} {currency}
             </p>
@@ -243,8 +243,8 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
       {/* Análisis IA */}
       {summary && (
         <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
-          <h2 className="mb-2 font-semibold text-[#1e3a5f]">Análisis IA</h2>
-          <div className="whitespace-pre-wrap text-sm text-[#111827]">{summary}</div>
+          <h2 className="mb-2 font-semibold text-[#0c1e3c]">Análisis IA</h2>
+          <div className="whitespace-pre-wrap text-sm text-[#0c1e3c]">{summary}</div>
         </div>
       )}
 
