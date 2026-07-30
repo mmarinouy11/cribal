@@ -14,6 +14,9 @@ export async function triggerRun(companyId?: string): Promise<{ message: string 
     throw new Error('No autorizado')
   }
 
+  // Manual runs bypass the cadence check on purpose: call runPipeline directly
+  // (not runPipelineAllCompanies). A successful run still updates
+  // lastSuccessfulRunAt, which resets the automatic cadence timer.
   // Run in the background — do not await so the action returns immediately.
   runPipeline(targetCompanyId).catch((error) => {
     const message = error instanceof Error ? error.message : String(error)

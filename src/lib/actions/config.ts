@@ -275,7 +275,10 @@ export async function updateCompanyConfig(data: CompanyConfigInput): Promise<voi
   if (data.excludedKeywords !== undefined) updateData.excludedKeywords = data.excludedKeywords
   if (data.excludedProducts !== undefined) updateData.excludedProducts = data.excludedProducts
   if (data.minimumScore !== undefined) updateData.minimumScore = data.minimumScore
-  if (data.lookbackDays !== undefined) updateData.lookbackDays = data.lookbackDays
+  if (data.lookbackDays !== undefined) {
+    // Cadence is limited to 1-7 days.
+    updateData.lookbackDays = Math.min(7, Math.max(1, Math.round(data.lookbackDays)))
+  }
   if (data.rssFeeds !== undefined) updateData.rssFeeds = data.rssFeeds
   if (data.customAiPrompt !== undefined) updateData.customAiPrompt = data.customAiPrompt || null
   if (data.notificationEmails !== undefined) {

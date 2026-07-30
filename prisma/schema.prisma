@@ -16,7 +16,8 @@ model CompanyConfig {
   excludedKeywords     String[]
   excludedProducts     String[]
   minimumScore         Int           @default(7)
-  lookbackDays         Int           @default(1)
+  lookbackDays         Int           @default(1) // 1-7 only (enforced in UI and action)
+  lastSuccessfulRunAt  DateTime?     // Updated after each successful pipeline run
   rssFeeds             String[]
   customAiPrompt       String?
   notificationEmails   String[]

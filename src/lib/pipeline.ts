@@ -10,6 +10,7 @@ import { filterDuplicates } from './pipeline/deduplicator'
 import { classifyTenders } from './pipeline/classifier'
 import { sendDigest } from './email/digest'
 import { enrichOpportunity } from './scraper/enricher'
+import { isDueToRun, daysUntilNextRun } from './cadence'
 
 interface PipelineError {
   stage: string
@@ -281,7 +282,8 @@ export async function runPipeline(companyId: string): Promise<void> {
       console.error(`[CRIBAL][EMAIL] Error enviando email: ${message}`)
     }
 
-    // 13. Mark the run as completed.
+    // 13. Mark the run as completed and advance the company's cadence timer.
+    // Only successful runs update lastSuccessfulRunAt so a FAILED run retries next cron.
     await prisma.run.update({
       where: { id: run.id },
       data: {
@@ -289,6 +291,10 @@ export async function runPipeline(companyId: string): Promise<void> {
         finishedAt: new Date(),
         errors: errors as unknown as Prisma.InputJsonValue,
       },
+    })
+    await prisma.companyConfig.update({
+      where: { id: companyId },
+      data: { lastSuccessfulRunAt: new Date() },
     })
 
     console.log(
@@ -310,8 +316,10 @@ export async function runPipeline(companyId: string): Promise<void> {
 }
 
 /**
- * Run the pipeline for every active company, sequentially to avoid hitting API
- * rate limits. One company's failure never blocks the others.
+ * Run the pipeline for every active company that is due to run according to its
+ * cadence (`lookbackDays`). The daily cron fires this; each company decides
+ * internally whether it is due. Companies not yet due are skipped. Per-company
+ * manual runs bypass this by calling `runPipeline` directly.
  *
  * `triggeredBy` only affects logging: 'cron' marks scheduled runs so they can be
  * told apart from manual runs in the logs.
@@ -324,20 +332,30 @@ export async function runPipelineAllCompanies(
 
   console.log(`${prefix} Iniciando pipeline para ${companies.length} empresas activas...`)
 
-  let totalOpportunities = 0
+  const now = new Date()
+  let ran = 0
+  let skipped = 0
+
   for (const company of companies) {
-    const before = await prisma.opportunity.count({ where: { companyId: company.id } })
+    if (!isDueToRun(company.lastSuccessfulRunAt, company.lookbackDays, now)) {
+      const days = daysUntilNextRun(company.lastSuccessfulRunAt, company.lookbackDays, now)
+      console.log(
+        `[CRIBAL] Omitiendo ${company.companyName} — próxima ejecución en ${days} día(s)`
+      )
+      skipped++
+      continue
+    }
+
     try {
       await runPipeline(company.id)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.error(`${prefix} Error inesperado en ${company.companyName}: ${message}`)
     }
-    const after = await prisma.opportunity.count({ where: { companyId: company.id } })
-    totalOpportunities += after - before
+    ran++
   }
 
   console.log(
-    `${prefix} Pipeline completado — ${companies.length} empresas, ${totalOpportunities} oportunidades totales`
+    `${prefix} Pipeline completado — ${ran} empresa(s) ejecutadas, ${skipped} omitidas`
   )
 }

@@ -15,6 +15,7 @@ import { RunPipelineButton } from '@/components/run-pipeline-button'
 import { OnboardingBanner } from '@/components/onboarding-banner'
 import { ClosingTimeline } from '@/components/dashboard/closing-timeline'
 import { getUrgentOpportunities, getBusinessDaysUntilClosing } from '@/lib/pipeline/urgency'
+import { daysUntilNextRun } from '@/lib/cadence'
 import { startOfToday, addDays } from '@/lib/dates'
 import { formatDateDMY, formatSpanishDate, formatRelativeTime, formatDateTime, truncate } from '@/lib/format'
 
@@ -75,6 +76,7 @@ export default async function DashboardPage() {
     newThisWeek,
     highlyRelevant,
     lastRun,
+    company,
     recentOpportunities,
     timelineOpportunities,
     urgentAll,
@@ -93,6 +95,10 @@ export default async function DashboardPage() {
     prisma.run.findFirst({
       where: { companyId },
       orderBy: { startedAt: 'desc' },
+    }),
+    prisma.companyConfig.findUnique({
+      where: { id: companyId },
+      select: { lastSuccessfulRunAt: true, lookbackDays: true },
     }),
     prisma.opportunity.findMany({
       where: { companyId },
@@ -133,6 +139,20 @@ export default async function DashboardPage() {
       OPEN_STATUSES.includes(o.status) &&
       getBusinessDaysUntilClosing(o.closingDate) <= 5
   ).length
+
+  // Next scheduled automatic run, derived from the company's cadence.
+  const lastSuccessfulRunAt = company?.lastSuccessfulRunAt ?? null
+  const daysToNextRun = lastSuccessfulRunAt
+    ? daysUntilNextRun(lastSuccessfulRunAt, company?.lookbackDays ?? 1, new Date())
+    : null
+  const nextRunLabel =
+    daysToNextRun === null
+      ? null
+      : daysToNextRun === 0
+        ? 'hoy'
+        : daysToNextRun === 1
+          ? 'mañana'
+          : `en ${daysToNextRun} días`
 
   return (
     <div className="space-y-6">
@@ -175,14 +195,15 @@ export default async function DashboardPage() {
         <MetricCard
           icon="▶️"
           iconClass="bg-indigo-50 text-indigo-600"
-          value={lastRun ? formatRelativeTime(lastRun.startedAt) : 'Sin ejecuciones'}
+          value={lastSuccessfulRunAt ? formatRelativeTime(lastSuccessfulRunAt) : 'Nunca ejecutado'}
           label="Última ejecución"
           extra={
-            lastRun ? (
-              <div className="mt-1">
-                <RunStatusBadge status={lastRun.status} />
-              </div>
-            ) : undefined
+            <div className="mt-1 space-y-1">
+              {nextRunLabel && (
+                <div className="text-xs text-[#6b7280]">Próxima: {nextRunLabel}</div>
+              )}
+              {lastRun && <RunStatusBadge status={lastRun.status} />}
+            </div>
           }
         />
         <MetricCard
