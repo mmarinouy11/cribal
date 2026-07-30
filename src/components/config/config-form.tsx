@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Toast, type ToastType } from '@/components/ui/toast'
 import { TagInput } from '@/components/ui/tag-input'
 import { SaveStatusIndicator, type SaveStatus } from '@/components/config/save-status'
+import { nextRunDate } from '@/lib/cadence'
+import { formatDateDMY } from '@/lib/format'
 import {
   updateCompanyConfig,
   testRssFeeds,
@@ -27,7 +29,7 @@ export interface ConfigFormValues {
   customAiPrompt: string
 }
 
-const LOOKBACK_OPTIONS = [1, 3, 7, 14, 30]
+const LOOKBACK_OPTIONS = [1, 2, 3, 4, 5, 6, 7]
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -59,7 +61,13 @@ function Field({
 const inputClass =
   'w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]'
 
-export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
+export function ConfigForm({
+  initial,
+  lastSuccessfulRunAt,
+}: {
+  initial: ConfigFormValues
+  lastSuccessfulRunAt: Date | null
+}) {
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null)
   const [form, setForm] = useState<ConfigFormValues>(initial)
   const [newFeed, setNewFeed] = useState('')
@@ -299,7 +307,10 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
             className="w-full"
           />
         </Field>
-        <Field label="Días de ventana (lookback)">
+        <Field
+          label="Cadencia de ejecución"
+          helper="El pipeline se ejecutará cada N días. Valores más altos reducen el consumo de créditos pero detectan oportunidades con menos frecuencia."
+        >
           <select
             value={form.lookbackDays}
             onChange={(e) => commitField('lookbackDays', Number(e.target.value))}
@@ -311,6 +322,19 @@ export function ConfigForm({ initial }: { initial: ConfigFormValues }) {
               </option>
             ))}
           </select>
+          <div className="mt-2 text-xs text-[#6b7280]">
+            {lastSuccessfulRunAt ? (
+              <>
+                <p>Última ejecución exitosa: {formatDateDMY(lastSuccessfulRunAt)}</p>
+                <p>
+                  Próxima ejecución:{' '}
+                  {formatDateDMY(nextRunDate(lastSuccessfulRunAt, form.lookbackDays))}
+                </p>
+              </>
+            ) : (
+              <p>Nunca ejecutado — correrá en la próxima ejecución del cron (L-V 08:00)</p>
+            )}
+          </div>
         </Field>
       </Section>
 

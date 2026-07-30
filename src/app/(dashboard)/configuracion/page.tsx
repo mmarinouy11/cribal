@@ -35,7 +35,7 @@ export default async function ConfigurationPage() {
         </p>
       </header>
 
-      <ConfigForm initial={initial} />
+      <ConfigForm initial={initial} lastSuccessfulRunAt={company.lastSuccessfulRunAt} />
     </div>
   )
 }

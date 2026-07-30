@@ -6,7 +6,7 @@
   "deploy": {
     "cronJobs": [
       {
-        "schedule": "0 20 * * 1-5",
+        "schedule": "0 11 * * 1-5",
         "command": "curl -s -X POST https://cribal-production.up.railway.app/api/runs -H \"Authorization: Bearer $CRON_SECRET\" -H \"Content-Type: application/json\""
       }
     ]
