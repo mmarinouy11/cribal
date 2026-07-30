@@ -7,9 +7,28 @@ import { signIn } from 'next-auth/react'
 import { TagInput } from '@/components/ui/tag-input'
 import { registerCompany } from '@/lib/actions/auth'
 import { generateCompanyConfig, type GeneratedCompanyConfig } from '@/lib/actions/config'
+import { lookupCompany } from '@/lib/actions/company-lookup'
 
-const COMPANY_SIZES = ['1-10', '11-50', '51-200', '200+']
+const COUNTRIES = [
+  'Uruguay',
+  'Argentina',
+  'Brasil',
+  'Chile',
+  'Colombia',
+  'México',
+  'España',
+  'Estados Unidos',
+  'Otro',
+]
 const STEP_LABELS = ['Tu empresa', 'Tu cuenta', 'Qué buscás']
+
+/** Split a free-text capabilities field into a trimmed list. */
+function capabilitiesToList(text: string): string[] {
+  return text
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
 
 const inputClass =
   'w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]'
@@ -42,10 +61,11 @@ export default function RegisterPage() {
 
   // Step 1
   const [companyName, setCompanyName] = useState('')
+  const [country, setCountry] = useState(COUNTRIES[0])
   const [description, setDescription] = useState('')
-  const [industry, setIndustry] = useState('')
-  const [companySize, setCompanySize] = useState(COMPANY_SIZES[0])
-  const [capabilities, setCapabilities] = useState<string[]>([])
+  const [capabilitiesText, setCapabilitiesText] = useState('')
+  const [looking, setLooking] = useState(false)
+  const [lookupMessage, setLookupMessage] = useState<string | null>(null)
   // Step 2
   const [userName, setUserName] = useState('')
   const [email, setEmail] = useState('')
@@ -59,16 +79,38 @@ export default function RegisterPage() {
   const [editing, setEditing] = useState(false)
 
   function buildDescription(): string {
-    const extras = [
-      industry.trim() ? `Sector: ${industry.trim()}` : '',
-      `Tamaño: ${companySize}`,
-    ]
-      .filter(Boolean)
-      .join(' · ')
-    return [description.trim(), extras ? `(${extras})` : ''].filter(Boolean).join(' ')
+    const suffix = country ? `(País: ${country})` : ''
+    return [description.trim(), suffix].filter(Boolean).join(' ')
+  }
+
+  async function handleLookup() {
+    // Confirm before overwriting content the user already typed.
+    if (
+      (description.trim() || capabilitiesText.trim()) &&
+      !window.confirm('¿Reemplazar el contenido actual con la información encontrada?')
+    ) {
+      return
+    }
+    setLooking(true)
+    setLookupMessage(null)
+    try {
+      const result = await lookupCompany(companyName, country)
+      setDescription(result.description)
+      setCapabilitiesText(result.capabilities)
+      setLookupMessage(
+        result.found
+          ? '✅ Información encontrada — podés editarla antes de continuar'
+          : 'No encontramos información pública. Completá los campos manualmente.'
+      )
+    } catch {
+      setLookupMessage('Error al buscar. Completá los campos manualmente.')
+    } finally {
+      setLooking(false)
+    }
   }
 
   async function runGeneration() {
+    const capabilities = capabilitiesToList(capabilitiesText)
     if (!description.trim() && capabilities.length === 0) {
       setConfig(null)
       setConfigError(
@@ -142,7 +184,7 @@ export default function RegisterPage() {
       userName,
       email,
       password,
-      capabilities,
+      capabilities: capabilitiesToList(capabilitiesText),
       minimumScore: config?.minimumScore ?? 7,
       notificationEmail: notificationEmail || email,
       relevantKeywords: config?.relevantKeywords ?? [],
@@ -210,6 +252,40 @@ export default function RegisterPage() {
               />
             </div>
             <div>
+              <label className={labelClass}>País *</label>
+              <select
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                className={inputClass}
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {companyName.trim().length > 2 && country && (
+              <div>
+                <button
+                  type="button"
+                  onClick={handleLookup}
+                  disabled={looking}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#1e3a5f] bg-white px-3 py-2 text-sm font-medium text-[#1e3a5f] hover:bg-[#f8fafc] disabled:opacity-60"
+                >
+                  {looking && (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#1e3a5f] border-t-transparent" />
+                  )}
+                  {looking ? 'Buscando…' : '🔍 Buscar información de la empresa'}
+                </button>
+                {lookupMessage && (
+                  <p className="mt-2 text-xs text-[#6b7280]">{lookupMessage}</p>
+                )}
+              </div>
+            )}
+
+            <div>
               <label className={labelClass}>Descripción</label>
               <textarea
                 rows={3}
@@ -220,35 +296,13 @@ export default function RegisterPage() {
               />
             </div>
             <div>
-              <label className={labelClass}>Industria / sector</label>
-              <input
-                type="text"
-                value={industry}
-                onChange={(e) => setIndustry(e.target.value)}
-                placeholder="Tecnología, Consultoría, Construcción…"
+              <label className={labelClass}>Productos, capacidades o servicios</label>
+              <textarea
+                rows={3}
+                value={capabilitiesText}
+                onChange={(e) => setCapabilitiesText(e.target.value)}
+                placeholder="¿Qué productos, capacidades o servicios ofrece tu empresa?"
                 className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Tamaño de la empresa</label>
-              <select
-                value={companySize}
-                onChange={(e) => setCompanySize(e.target.value)}
-                className={inputClass}
-              >
-                {COMPANY_SIZES.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Capacidades y servicios</label>
-              <TagInput
-                values={capabilities}
-                onChange={setCapabilities}
-                placeholder="¿Qué servicios ofrece tu empresa?"
               />
             </div>
           </div>
