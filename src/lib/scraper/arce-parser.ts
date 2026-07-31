@@ -229,6 +229,17 @@ function extractContact(html: string): {
   return { email, phone, name }
 }
 
+/**
+ * Read the tender's object description from `<p class="buy-object">…</p>`, the
+ * one-line summary of what is being bought. Returns null when absent.
+ */
+export function extractBuyObject(html: string): string | null {
+  const match = html.match(/<p[^>]*class="[^"]*buy-object[^"]*"[^>]*>([\s\S]*?)<\/p>/i)
+  if (!match) return null
+  const text = stripTags(match[1])
+  return text.length >= 3 ? text : null
+}
+
 function extractTenderItems(html: string): TenderItem[] {
   const items: TenderItem[] = []
   // Each item's title lives in a heading that carries "(Cód. Artículo NNNNN)".

@@ -16,17 +16,38 @@ function tenderItemsFromJson(value: Prisma.JsonValue | null): TenderItem[] {
   ) as unknown as TenderItem[]
 }
 
-/** Primary item name for a failure: first tender item, else its title. */
-function primaryItemName(failure: FailedTender): string {
+/** First tender item name for a failure, or null when there are no items. */
+function itemName(failure: FailedTender): string | null {
   const items = tenderItemsFromJson(failure.tenderItems)
-  const name = items.find((i) => i.name)?.name
-  return name ?? failure.title
+  return items.find((i) => i.name)?.name ?? null
 }
 
-/** Short organismo label — first segment, capped in length. */
-function abbreviateOrganismo(organismo: string): string {
-  const first = organismo.split(/[|,-]/)[0].trim()
-  return first.length > 40 ? `${first.slice(0, 40)}…` : first
+/** Collapse an organismo that repeats itself ("X · X" → "X"). */
+function cleanOrganismo(organismo: string): string {
+  const parts = organismo
+    .split('·')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+  const unique = [...new Set(parts)]
+  return unique.join(' · ') || organismo.trim()
+}
+
+function truncateText(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text
+}
+
+/**
+ * Build a readable niche label: "{object description} · {organismo}", falling
+ * back to the item name, and only then to the raw feed title. The feed title
+ * already contains the organismo, so it is used as-is without appending it again.
+ */
+function buildLabel(topFailure: FailedTender, organismo: string): string {
+  const org = cleanOrganismo(organismo)
+  const description = topFailure.objectDescription?.trim()
+  if (description) return `${truncateText(description, 60)} · ${org}`
+  const item = itemName(topFailure)
+  if (item) return `${item} · ${org}`
+  return topFailure.title
 }
 
 /** NUCLEO is more favorable than ADYACENTE (FUERA never reaches a niche). */
@@ -98,13 +119,14 @@ export async function recomputeNiches(companyId: string): Promise<number> {
       .map((f) => f.nicheCategory)
       .reduce<NicheCategory>((acc, c) => mostFavorable(acc, c), 'FUERA')
 
-    const label = `${primaryItemName(topFailure)} · ${abbreviateOrganismo(group.organismo)}`
+    const label = buildLabel(topFailure, group.organismo)
     const signalStrength = computeSignalStrength(failureCount, lastFailureAt)
 
     const data = {
       organismo: group.organismo,
       articleCode: group.articleCode,
       label,
+      objectDescription: topFailure.objectDescription,
       category,
       fitScore,
       missingCapability,

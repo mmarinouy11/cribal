@@ -262,10 +262,11 @@ model FailedTender {
   url             String
   title           String
   description     String?
+  objectDescription String?     // from <p class="buy-object"> on the detail page
   organismo       String?
   publicationDate DateTime?
 
-  articleCodes    String[]      // from detail-page enrichment
+  articleCodes    String[]      // from the /mostrar-llamado/1 call view
   tenderItems     Json?
 
   nicheCategory     NicheCategory @default(FUERA)
@@ -304,6 +305,7 @@ model Niche {
   organismo         String
   articleCode       String?
   label             String         // e.g. "Mantenimiento de software · OSE"
+  objectDescription String?        // buy-object of the representative failure
 
   category          NicheCategory  @default(FUERA)
   fitScore          Int            @default(0)

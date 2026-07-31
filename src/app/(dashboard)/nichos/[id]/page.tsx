@@ -60,6 +60,9 @@ export default async function NicheDetailPage({ params }: { params: { id: string
           <h1 className="mt-2 text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">
             {niche.label}
           </h1>
+          {niche.objectDescription && (
+            <p className="mt-1 max-w-2xl text-sm text-[#334155]">{niche.objectDescription}</p>
+          )}
           <p className="text-sm text-[#6b7280]">
             {niche.organismo}
             {niche.articleCode ? ` · Cód. Artículo ${niche.articleCode}` : ''}
