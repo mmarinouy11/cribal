@@ -19,7 +19,9 @@ export interface AdjudicationRecord {
   organismo: string
   objeto: string
   adjudicatedTo: string
-  amount: number | null
+  unitPrice: number | null // unit price of the item matching the opportunity
+  unit: string | null // its unit of measure (UNIDAD, HORA, MENSUAL…)
+  amount: number | null // total contract amount
   currency: string
   date: string | null
   url: string
@@ -36,17 +38,29 @@ export interface CompetitorProfile {
   lastSeen: string | null
 }
 
-export interface PriceIntelligence {
-  sampleSize: number
+/**
+ * A price sample for a single unit of measure and currency. A price per hour and
+ * an annual contract are not comparable, so statistics are never computed across
+ * units — each bucket stands alone.
+ */
+export interface PriceBucket {
+  unit: string
   currency: string
+  sampleSize: number
   unitPrices: number[]
   min: number
   max: number
   average: number
   median: number
   suggestedRange: { low: number; high: number }
+}
+
+export interface PriceIntelligence {
+  buckets: PriceBucket[]
   lastUpdated: string
 }
+
+const MIN_BUCKET_SAMPLES = 3
 
 const STOPWORDS = new Set([
   'para',
@@ -276,47 +290,47 @@ function buildPriceIntelligence(
 ): PriceIntelligence {
   const codeSet = new Set(articleCodes)
 
-  // Collect matching unit prices grouped by currency. Averaging UYU, USD and EUR
-  // together would be meaningless, so we build the statistics from a single
-  // currency — the one with the largest sample.
-  const byCurrency = new Map<string, number[]>()
+  // Group matching unit prices by "{currency}|{unit}" (e.g. "UYU|HORA",
+  // "UYU|MENSUAL"). Mixing units or currencies would corrupt the statistics, so
+  // each combination gets its own bucket.
+  const groups = new Map<string, { unit: string; currency: string; prices: number[] }>()
   for (const adj of adjudications) {
     for (const item of adj.detail.adjudicatedItems) {
       const matches = codeSet.size === 0 || (item.articleCode && codeSet.has(item.articleCode))
-      if (matches && item.unitPriceNoTax !== null) {
-        const bucket = byCurrency.get(item.currency) ?? []
-        bucket.push(item.unitPriceNoTax)
-        byCurrency.set(item.currency, bucket)
-      }
+      if (!matches || item.unitPriceNoTax === null) continue
+      const unit = (item.unit ?? 'SIN UNIDAD').toUpperCase()
+      const key = `${item.currency}|${unit}`
+      const group = groups.get(key) ?? { unit, currency: item.currency, prices: [] }
+      group.prices.push(item.unitPriceNoTax)
+      groups.set(key, group)
     }
   }
 
-  let currency = 'UYU'
-  let prices: number[] = []
-  for (const [cur, values] of byCurrency) {
-    if (values.length > prices.length) {
-      currency = cur
-      prices = values
-    }
+  const buckets: PriceBucket[] = []
+  for (const group of groups.values()) {
+    // Drop under-sampled buckets rather than merging them — a range built from
+    // one or two points is misleading.
+    if (group.prices.length < MIN_BUCKET_SAMPLES) continue
+    const sorted = [...group.prices].sort((a, b) => a - b)
+    const sum = sorted.reduce((acc, n) => acc + n, 0)
+    buckets.push({
+      unit: group.unit,
+      currency: group.currency,
+      sampleSize: sorted.length,
+      unitPrices: sorted,
+      min: sorted[0],
+      max: sorted[sorted.length - 1],
+      average: Math.round(sum / sorted.length),
+      median: Math.round(percentile(sorted, 50)),
+      suggestedRange: {
+        low: Math.round(percentile(sorted, 25)),
+        high: Math.round(percentile(sorted, 75)),
+      },
+    })
   }
 
-  const sorted = [...prices].sort((a, b) => a - b)
-  const sum = sorted.reduce((acc, n) => acc + n, 0)
-
-  return {
-    sampleSize: sorted.length,
-    currency,
-    unitPrices: sorted,
-    min: sorted.length > 0 ? sorted[0] : 0,
-    max: sorted.length > 0 ? sorted[sorted.length - 1] : 0,
-    average: sorted.length > 0 ? Math.round(sum / sorted.length) : 0,
-    median: Math.round(percentile(sorted, 50)),
-    suggestedRange: {
-      low: Math.round(percentile(sorted, 25)),
-      high: Math.round(percentile(sorted, 75)),
-    },
-    lastUpdated: new Date().toISOString(),
-  }
+  buckets.sort((a, b) => b.sampleSize - a.sampleSize)
+  return { buckets, lastUpdated: new Date().toISOString() }
 }
 
 interface ParsedAdjudication {
@@ -346,6 +360,18 @@ Respondé SOLO en español. Sé concreto y accionable.`
     ? `⚠️ ADVERTENCIA: Estos resultados provienen de una búsqueda por palabras clave, no por código de artículo. Los competidores y precios pueden incluir sectores no relacionados. Aclará esta limitación de forma destacada al inicio del análisis.\n\n`
     : ''
 
+  // Prices are grouped by unit of measure. Different units are not comparable, so
+  // the recommendation must reference the right unit.
+  const priceLines =
+    price.buckets.length > 0
+      ? price.buckets
+          .map(
+            (b) =>
+              `- Por ${b.unit} (${b.sampleSize} muestras, ${b.currency}): rango sugerido ${b.suggestedRange.low}–${b.suggestedRange.high}, mediana ${b.median}, mín ${b.min}, máx ${b.max}`
+          )
+          .join('\n')
+      : 'Muestra insuficiente para estimar precios: ningún grupo por unidad de medida alcanzó las 3 muestras mínimas.'
+
   const user = `${fallbackWarning}Oportunidad: ${title}
 Organismo: ${organismo}
 Ítems: ${JSON.stringify(items)}
@@ -356,8 +382,10 @@ ${JSON.stringify(adjudications)}
 Competidores identificados:
 ${JSON.stringify(competitors)}
 
-Inteligencia de precios:
-${JSON.stringify(price)}
+Inteligencia de precios por unidad de medida:
+${priceLines}
+
+IMPORTANTE: los precios están agrupados por unidad de medida (HORA, MENSUAL, UNIDAD, etc.). Nunca compares precios de distintas unidades y referí siempre la unidad correspondiente en tu recomendación de precio.
 
 Generá un análisis de mercado con:
 1. Resumen del mercado para este tipo de licitación
@@ -410,6 +438,7 @@ export async function analyzeMarket(
 
   // Step 2 — collect and parse historical adjudications.
   const { leads, usedKeywordFallback } = await collectAdjudicationUrls(articleCodes, keywords)
+  const codeSet = new Set(articleCodes)
   const parsed: ParsedAdjudication[] = []
 
   for (const lead of leads) {
@@ -417,8 +446,15 @@ export async function analyzeMarket(
     const html = await fetchArceHtml(lead.url)
     if (!html) continue
     const detail = parseAdjudicationDetail(html)
+    // Prefer the item that matches the opportunity's article code so the record's
+    // unit price and provider describe the comparable good/service.
+    const matchItem =
+      detail.adjudicatedItems.find((i) => i.articleCode && codeSet.has(i.articleCode)) ??
+      detail.adjudicatedItems[0]
     const winner =
-      detail.adjudicatedItems.map((i) => i.providerName).find(Boolean) ?? 'Sin datos'
+      matchItem?.providerName ||
+      detail.adjudicatedItems.map((i) => i.providerName).find(Boolean) ||
+      'Sin datos'
     parsed.push({
       detail,
       record: {
@@ -428,8 +464,10 @@ export async function analyzeMarket(
         organismo: detail.organismo ?? organismoFromTitle(lead.feedTitle),
         objeto: lead.feedTitle || opportunity.title,
         adjudicatedTo: winner,
+        unitPrice: matchItem?.unitPriceNoTax ?? null,
+        unit: matchItem?.unit ?? null,
         amount: detail.totalAmount,
-        currency: detail.currency,
+        currency: matchItem?.currency ?? detail.currency,
         date: detail.purchaseDate ? detail.purchaseDate.toISOString() : null,
         url: lead.url,
       },

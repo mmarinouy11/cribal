@@ -25,11 +25,13 @@ interface MarketPanelProps {
   analysis: MarketAnalysisView | null
 }
 
+const KNOWN_CURRENCIES = new Set(['UYU', 'USD', 'EUR'])
+
 function formatMoney(amount: number, currency: string): string {
   try {
     return new Intl.NumberFormat('es-UY', {
       style: 'currency',
-      currency: currency === 'USD' ? 'USD' : 'UYU',
+      currency: KNOWN_CURRENCIES.has(currency) ? currency : 'UYU',
       maximumFractionDigits: 0,
     }).format(amount)
   } catch {
@@ -114,12 +116,9 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
   }
 
   const { adjudications, competitors, priceRange, summary } = analysis
-  const currency = priceRange.currency
-
-  // Position of the suggested range within the [min, max] band, as percentages.
-  const span = Math.max(1, priceRange.max - priceRange.min)
-  const lowPct = Math.max(0, ((priceRange.suggestedRange.low - priceRange.min) / span) * 100)
-  const highPct = Math.min(100, ((priceRange.suggestedRange.high - priceRange.min) / span) * 100)
+  const buckets = priceRange?.buckets ?? []
+  // Currency for competitor totals: the dominant price bucket's, else pesos.
+  const currency = buckets[0]?.currency ?? 'UYU'
 
   return (
     <div className="space-y-6">
@@ -138,7 +137,9 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
                   <th className="py-2 pr-4">Organismo</th>
                   <th className="py-2 pr-4">Objeto</th>
                   <th className="py-2 pr-4">Adjudicado a</th>
-                  <th className="py-2 pr-4">Monto</th>
+                  <th className="py-2 pr-4">Precio unit.</th>
+                  <th className="py-2 pr-4">Unidad</th>
+                  <th className="py-2 pr-4">Monto total</th>
                   <th className="py-2 pr-4">Fecha</th>
                   <th className="py-2">Link</th>
                 </tr>
@@ -151,6 +152,10 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
                       {adj.objeto.length > 50 ? `${adj.objeto.slice(0, 50)}…` : adj.objeto}
                     </td>
                     <td className="py-2 pr-4 text-[#0c1e3c]">{adj.adjudicatedTo}</td>
+                    <td className="py-2 pr-4 text-[#0c1e3c]">
+                      {adj.unitPrice != null ? formatMoney(adj.unitPrice, adj.currency) : '—'}
+                    </td>
+                    <td className="py-2 pr-4 text-[#6b7280]">{adj.unit || '—'}</td>
                     <td className="py-2 pr-4 text-[#0c1e3c]">
                       {adj.amount !== null ? formatMoney(adj.amount, adj.currency) : '—'}
                     </td>
@@ -213,29 +218,44 @@ export function MarketPanel({ opportunityId, status, analysis }: MarketPanelProp
       {/* Inteligencia de precios */}
       <Card>
         <h2 className="mb-3 font-semibold text-[#0c1e3c]">Inteligencia de precios</h2>
-        {priceRange.sampleSize === 0 ? (
-          <p className="text-sm text-[#6b7280]">
-            Sin datos de precios suficientes para esta licitación.
-          </p>
+        {buckets.length === 0 ? (
+          <p className="text-sm text-[#6b7280]">Muestra insuficiente para estimar precios.</p>
         ) : (
-          <div>
-            <p className="mb-2 text-sm text-[#6b7280]">
-              Precio unitario histórico ({priceRange.sampleSize} muestras)
-            </p>
-            <div className="relative mt-4 h-3 w-full rounded-full bg-[#e0f2fe]">
-              <div
-                className="absolute top-0 h-3 rounded-full bg-[#06b6d4]"
-                style={{ left: `${lowPct}%`, width: `${Math.max(4, highPct - lowPct)}%` }}
-              />
-            </div>
-            <div className="mt-2 flex justify-between text-xs text-[#6b7280]">
-              <span>{formatMoney(priceRange.min, currency)}</span>
-              <span>{formatMoney(priceRange.max, currency)}</span>
-            </div>
-            <p className="mt-3 text-sm font-semibold text-[#0c1e3c]">
-              Sugerido: {formatMoney(priceRange.suggestedRange.low, currency)} –{' '}
-              {formatMoney(priceRange.suggestedRange.high, currency)} {currency}
-            </p>
+          <div className="space-y-6">
+            {buckets.map((bucket) => {
+              // Position of the suggested range within this bucket's [min, max].
+              const span = Math.max(1, bucket.max - bucket.min)
+              const lowPct = Math.max(0, ((bucket.suggestedRange.low - bucket.min) / span) * 100)
+              const highPct = Math.min(
+                100,
+                ((bucket.suggestedRange.high - bucket.min) / span) * 100
+              )
+              return (
+                <div key={`${bucket.currency}-${bucket.unit}`}>
+                  <p className="mb-2 text-sm font-medium text-[#0c1e3c]">
+                    Por {bucket.unit}{' '}
+                    <span className="font-normal text-[#6b7280]">
+                      ({bucket.sampleSize} muestras · {bucket.currency})
+                    </span>
+                  </p>
+                  <div className="relative mt-3 h-3 w-full rounded-full bg-[#e0f2fe]">
+                    <div
+                      className="absolute top-0 h-3 rounded-full bg-[#06b6d4]"
+                      style={{ left: `${lowPct}%`, width: `${Math.max(4, highPct - lowPct)}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex justify-between text-xs text-[#6b7280]">
+                    <span>{formatMoney(bucket.min, bucket.currency)}</span>
+                    <span>{formatMoney(bucket.max, bucket.currency)}</span>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-[#0c1e3c]">
+                    Sugerido: {formatMoney(bucket.suggestedRange.low, bucket.currency)} –{' '}
+                    {formatMoney(bucket.suggestedRange.high, bucket.currency)} {bucket.currency} /{' '}
+                    {bucket.unit}
+                  </p>
+                </div>
+              )
+            })}
           </div>
         )}
       </Card>
