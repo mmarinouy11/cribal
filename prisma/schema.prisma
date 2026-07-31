@@ -31,6 +31,8 @@ model CompanyConfig {
   opportunities        Opportunity[]
   users                User[]
   profile              CompanyProfile?
+  failedTenders        FailedTender[]
+  niches               Niche[]
 
   @@map("company_configs")
 }
@@ -93,6 +95,8 @@ model Run {
   itemsAfterStageGate   Int           @default(0)
   itemsSentToAi         Int           @default(0)
   opportunitiesSaved    Int           @default(0)
+  failedTendersFound    Int           @default(0)
+  nichesDetected        Int           @default(0)
   errors                Json          @default("[]")
   createdAt             DateTime      @default(now())
 
@@ -241,4 +245,103 @@ model RawPublication {
   createdAt      DateTime  @default(now())
 
   @@map("raw_publications")
+}
+
+// A public tender that failed — declared desierta (no bids) or with all offers
+// rejected. Represents unmet state demand: a potential niche the company could
+// enter, even outside its current line of work. No keyword/category filter is
+// applied to these; the AI classifies every failure and only FUERA is dropped.
+model FailedTender {
+  id              String        @id @default(uuid())
+  companyId       String
+  company         CompanyConfig @relation(fields: [companyId], references: [id])
+
+  tenderId        String
+  failureId       String        // "arce-fail|{tenderId}"
+  failureType     FailureType
+  url             String
+  title           String
+  description     String?
+  organismo       String?
+  publicationDate DateTime?
+
+  articleCodes    String[]      // from detail-page enrichment
+  tenderItems     Json?
+
+  nicheCategory     NicheCategory @default(FUERA)
+  fitScore          Int           @default(0)
+  fitReason         String?
+  missingCapability String?       // what the company would lack (only if ADYACENTE)
+
+  nicheId         String?
+  niche           Niche?        @relation(fields: [nicheId], references: [id])
+
+  detectedAt      DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+
+  @@unique([companyId, failureId])
+  @@map("failed_tenders")
+}
+
+enum FailureType {
+  DESIERTA
+  OFERTAS_RECHAZADAS
+}
+
+enum NicheCategory {
+  NUCLEO      // within what the company already does
+  ADYACENTE   // reachable with a reasonable stretch
+  FUERA       // a different line of work, distance too large
+}
+
+// A niche groups repeated failures of the same organismo + article code into a
+// single addressable market signal.
+model Niche {
+  id                String         @id @default(uuid())
+  companyId         String
+  company           CompanyConfig  @relation(fields: [companyId], references: [id])
+
+  organismo         String
+  articleCode       String?
+  label             String         // e.g. "Mantenimiento de software · OSE"
+
+  category          NicheCategory  @default(FUERA)
+  fitScore          Int            @default(0)
+  missingCapability String?
+
+  failureCount      Int            @default(0)
+  desiertaCount     Int            @default(0)
+  rechazadaCount    Int            @default(0)
+
+  firstFailureAt    DateTime
+  lastFailureAt     DateTime
+
+  signalStrength    SignalStrength @default(BAJA)
+
+  aiAnalysis        String?        // why it failed and how to enter
+  analyzedAt        DateTime?
+
+  status            NicheStatus    @default(NUEVO)
+  notes             String?
+
+  failures          FailedTender[]
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([companyId, organismo, articleCode])
+  @@map("niches")
+}
+
+enum SignalStrength {
+  ALTA      // 3+ failures, or 2+ with the last one within 12 months
+  MEDIA     // 2 failures
+  BAJA      // 1 failure
+}
+
+enum NicheStatus {
+  NUEVO
+  EXPLORANDO
+  DESCARTADO
+  ARCHIVADO
 }

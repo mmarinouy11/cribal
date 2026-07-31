@@ -1,11 +1,20 @@
 import { Resend } from 'resend'
-import type { CompanyConfig, Opportunity } from '@prisma/client'
+import type { CompanyConfig, NicheCategory, Opportunity } from '@prisma/client'
 import type { NormalizedTender } from '../pipeline/normalizer'
 import { getUrgentOpportunities, getBusinessDaysUntilClosing } from '../pipeline/urgency'
-import { formatDateTime } from '../format'
+import { formatDateTime, formatRelativeTime } from '../format'
 
 const ARCE_URL = 'https://www.comprasestatales.gub.uy'
 const APP_URL = 'https://cribal-production.up.railway.app'
+
+/** Minimal niche shape the digest needs — high-signal niches detected in a run. */
+export interface NicheDigestItem {
+  id: string
+  label: string
+  category: NicheCategory
+  failureCount: number
+  lastFailureAt: Date
+}
 
 let cachedResend: Resend | null = null
 
@@ -104,10 +113,31 @@ function renderOtherTender(tender: NormalizedTender): string {
     </li>`
 }
 
+function nicheCategoryLabel(category: NicheCategory): string {
+  if (category === 'NUCLEO') return 'Núcleo'
+  if (category === 'ADYACENTE') return 'Adyacente'
+  return 'Fuera'
+}
+
+function renderNicheItem(niche: NicheDigestItem): string {
+  const link = `${APP_URL}/nichos/${niche.id}`
+  const category = nicheCategoryLabel(niche.category)
+  const relative = formatRelativeTime(niche.lastFailureAt)
+  return `
+    <div style="border:1px solid #e5e7eb;border-left:4px solid #8b5cf6;border-radius:8px;padding:14px;margin-bottom:12px;background:#ffffff;">
+      <h3 style="margin:0 0 4px 0;font-size:15px;color:#0f172a;">${escapeHtml(niche.label)}</h3>
+      <p style="margin:0 0 8px 0;font-size:13px;color:#64748b;">
+        ${escapeHtml(category)} · ${niche.failureCount} llamado(s) fallido(s) · último ${escapeHtml(relative)}
+      </p>
+      <a href="${link}" style="font-size:13px;font-weight:600;color:#5b21b6;text-decoration:none;">Ver nicho →</a>
+    </div>`
+}
+
 function buildHtml(
   savedOpportunities: Opportunity[],
   otherTenders: NormalizedTender[],
   urgentOpportunities: Opportunity[],
+  niches: NicheDigestItem[],
   company: CompanyConfig,
   formattedDate: string,
   totalFound: number
@@ -132,6 +162,14 @@ function buildHtml(
     otherCount > 0
       ? `<ul style="padding:0;margin:0;">${otherTenders.map(renderOtherTender).join('')}</ul>`
       : `<p style="font-size:14px;color:#64748b;">No hay otros llamados nuevos hoy.</p>`
+
+  const nichesSection =
+    niches.length > 0
+      ? `<div style="background:#ffffff;padding:0 24px 24px 24px;">
+      <h2 style="font-size:18px;color:#0f172a;margin:8px 0 16px 0;">Nichos detectados (${niches.length})</h2>
+      ${niches.map(renderNicheItem).join('')}
+    </div>`
+      : ''
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -171,6 +209,8 @@ function buildHtml(
       ${otherList}
     </div>
 
+    ${nichesSection}
+
     <div style="background:#e2e8f0;padding:16px 24px;border-radius:0 0 8px 8px;text-align:center;">
       <p style="margin:0 0 4px 0;font-size:13px;">
         <a href="${ARCE_URL}" style="color:#0c1e3c;text-decoration:none;">Ir a Compras Estatales (ARCE)</a>
@@ -191,7 +231,8 @@ export async function sendDigest(
   savedOpportunities: Opportunity[],
   allNewTenders: NormalizedTender[],
   company: CompanyConfig,
-  runId: string
+  runId: string,
+  niches: NicheDigestItem[] = []
 ): Promise<void> {
   if (savedOpportunities.length === 0 && allNewTenders.length === 0) {
     console.log(
@@ -219,6 +260,7 @@ export async function sendDigest(
     savedOpportunities,
     otherTenders,
     urgentOpportunities,
+    niches,
     company,
     formattedDate,
     allNewTenders.length
