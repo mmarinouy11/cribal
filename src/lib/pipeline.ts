@@ -8,7 +8,8 @@ import { filterExclusions } from './pipeline/exclusionFilter'
 import { applyStageGate, type StageGateResult } from './pipeline/stageGate'
 import { filterDuplicates } from './pipeline/deduplicator'
 import { classifyTenders } from './pipeline/classifier'
-import { sendDigest } from './email/digest'
+import { ingestFailedTenders } from './pipeline/failed-tenders'
+import { sendDigest, type NicheDigestItem } from './email/digest'
 import { enrichOpportunity } from './scraper/enricher'
 import { isDueToRun, daysUntilNextRun } from './cadence'
 
@@ -273,9 +274,41 @@ export async function runPipeline(companyId: string): Promise<void> {
       data: { opportunitiesSaved: savedOpportunities.length },
     })
 
+    // 11b. Ingest failed tenders (desiertas / ofertas rechazadas) and recompute
+    // niches. Best-effort — a failure here must never break the main pipeline.
+    let newDigestNiches: NicheDigestItem[] = []
+    try {
+      const { ingested, nichesUpdated } = await ingestFailedTenders(company, run.id)
+      await prisma.run.update({
+        where: { id: run.id },
+        data: { failedTendersFound: ingested, nichesDetected: nichesUpdated },
+      })
+      // High-signal niches touched during this run feed the digest section.
+      newDigestNiches = await prisma.niche.findMany({
+        where: {
+          companyId: company.id,
+          signalStrength: { in: ['ALTA', 'MEDIA'] },
+          status: { notIn: ['DESCARTADO', 'ARCHIVADO'] },
+          updatedAt: { gte: run.startedAt },
+        },
+        orderBy: [{ signalStrength: 'asc' }, { lastFailureAt: 'desc' }],
+        select: {
+          id: true,
+          label: true,
+          category: true,
+          failureCount: true,
+          lastFailureAt: true,
+        },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      errors.push({ stage: 'failed_tenders', message })
+      console.error(`[CRIBAL][NICHOS] Error ingiriendo fallos: ${message}`)
+    }
+
     // 12. Send the digest email.
     try {
-      await sendDigest(savedOpportunities, newTenders, company, run.id)
+      await sendDigest(savedOpportunities, newTenders, company, run.id, newDigestNiches)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       errors.push({ stage: 'email', message })

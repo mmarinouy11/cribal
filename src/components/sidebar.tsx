@@ -22,6 +22,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: 'ti-layout-dashboard' },
   { href: '/oportunidades', label: 'Oportunidades', icon: 'ti-target' },
+  { href: '/nichos', label: 'Nichos', icon: 'ti-bulb' },
   { href: '/ejecuciones', label: 'Ejecuciones', icon: 'ti-player-play' },
   { href: '/perfil', label: 'Perfil', icon: 'ti-building' },
   { href: '/configuracion', label: 'Configuración', icon: 'ti-settings' },

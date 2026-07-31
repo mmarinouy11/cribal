@@ -1,10 +1,11 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { OpportunityStatus, RunStatus } from '@prisma/client'
+import { OpportunityStatus, RunStatus, NicheStatus, SignalStrength } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
 import { Card } from '@/components/ui/card'
+import { NicheCategoryBadge } from '@/components/niche/niche-badges'
 import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/table'
 import { ClickableRow } from '@/components/ui/clickable-row'
 import { ScoreBadge } from '@/components/ui/score-badge'
@@ -88,6 +89,8 @@ export default async function DashboardPage() {
     recentOpportunities,
     timelineOpportunities,
     urgentAll,
+    nichesActiveCount,
+    highSignalNiches,
   ] = await Promise.all([
     prisma.opportunity.count({
       where: { companyId, status: { notIn: INACTIVE_STATUSES } },
@@ -130,6 +133,28 @@ export default async function DashboardPage() {
       orderBy: { closingDate: 'asc' },
     }),
     getUrgentOpportunities(companyId),
+    prisma.niche.count({
+      where: {
+        companyId,
+        status: { notIn: [NicheStatus.DESCARTADO, NicheStatus.ARCHIVADO] },
+      },
+    }),
+    prisma.niche.findMany({
+      where: {
+        companyId,
+        signalStrength: SignalStrength.ALTA,
+        status: { notIn: [NicheStatus.DESCARTADO, NicheStatus.ARCHIVADO] },
+      },
+      orderBy: { lastFailureAt: 'desc' },
+      take: 3,
+      select: {
+        id: true,
+        label: true,
+        category: true,
+        failureCount: true,
+        lastFailureAt: true,
+      },
+    }),
   ])
 
   // Timeline items are guaranteed to have a closing date by the query filter.
@@ -191,7 +216,7 @@ export default async function DashboardPage() {
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <MetricCard
           icon="ti-briefcase"
           iconColor="text-[#06b6d4]"
@@ -240,6 +265,13 @@ export default async function DashboardPage() {
           value={closingThisWeekCount}
           label="Cierran esta semana"
         />
+        <MetricCard
+          icon="ti-bulb"
+          iconColor="text-[#8b5cf6]"
+          iconBg="bg-[#ede9fe]"
+          value={nichesActiveCount}
+          label="Nichos detectados"
+        />
       </section>
 
       <ClosingTimeline opportunities={timelineItems} />
@@ -280,6 +312,44 @@ export default async function DashboardPage() {
               )
             })}
           </div>
+        </section>
+      )}
+
+      {highSignalNiches.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.4px] text-[#8b5cf6]">
+              <i className="ti ti-bulb" aria-hidden />
+              Nichos de alta señal
+            </h2>
+            <Link href="/nichos" className="text-[13px] text-[#06b6d4] hover:underline">
+              Ver todos los nichos →
+            </Link>
+          </div>
+          <Card className="divide-y divide-[#e0f2fe]">
+            {highSignalNiches.map((niche) => (
+              <div key={niche.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="min-w-0 truncate font-medium text-[#0c1e3c]">
+                    {niche.label}
+                  </span>
+                  <NicheCategoryBadge category={niche.category} />
+                </div>
+                <div className="flex shrink-0 items-center gap-4 text-xs text-[#6b7280]">
+                  <span>
+                    {niche.failureCount} fallo{niche.failureCount === 1 ? '' : 's'} ·{' '}
+                    {formatRelativeTime(niche.lastFailureAt)}
+                  </span>
+                  <Link
+                    href={`/nichos/${niche.id}`}
+                    className="font-medium text-[#06b6d4] hover:underline"
+                  >
+                    Ver →
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </Card>
         </section>
       )}
 
