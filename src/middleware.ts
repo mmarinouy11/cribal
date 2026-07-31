@@ -8,12 +8,21 @@ const { auth } = NextAuth(authConfig)
 
 export default auth((req) => {
   const isLoggedIn = !!req.auth
+  const { pathname } = req.nextUrl
   const isAuthRoute =
-    req.nextUrl.pathname.startsWith('/login') ||
-    req.nextUrl.pathname.startsWith('/register') ||
-    req.nextUrl.pathname.startsWith('/api/auth')
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/register') ||
+    pathname.startsWith('/api/auth')
 
-  if (!isLoggedIn && !isAuthRoute) {
+  // Let Bearer-token requests to /api/runs through so the route handler can
+  // validate the CRON_SECRET itself (the middleware can't, and has no session
+  // for cron callers). Without a Bearer header /api/runs still falls through to
+  // the session check below, so session-based access is unchanged.
+  const authHeader = req.headers.get('authorization')
+  const isCronRun =
+    pathname.startsWith('/api/runs') && authHeader?.startsWith('Bearer ') === true
+
+  if (!isLoggedIn && !isAuthRoute && !isCronRun) {
     return NextResponse.redirect(new URL('/login', req.url))
   }
 

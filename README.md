@@ -173,9 +173,20 @@ regulares quedan siempre acotados a su empresa.
 
 1. **Servicio Next.js** — conectado al repo de GitHub, auto-deploy en cada push.
 2. **PostgreSQL** — `DATABASE_URL` se inyecta automáticamente por Railway.
-3. **Cron job** — configurado en `railway.json` (`0 20 * * 1-5`), llama a
-   `POST /api/runs` con el header `Authorization: Bearer $CRON_SECRET`. No depende
-   de ninguna máquina local.
+3. **Cron job** — se configura como un **servicio de cron separado en Railway**
+   (Settings → Cron Schedule), NO en `railway.json` (Railway no soporta cron en
+   ese archivo; cualquier bloque `cronJobs` ahí se ignora en silencio). El
+   servicio corre con schedule `0 11 * * 1-5` (UTC; 08:00 Montevideo) y como
+   comando un curl que dispara el endpoint:
+
+   ```
+   curl -s -X POST "$APP_URL/api/runs" \
+     -H "Authorization: Bearer $CRON_SECRET" \
+     -H "Content-Type: application/json"
+   ```
+
+   El endpoint valida el token y corre el pipeline de todas las empresas activas.
+   No depende de ninguna máquina local.
 
 Variables de entorno a configurar en el dashboard de Railway:
 
