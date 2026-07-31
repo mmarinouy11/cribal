@@ -24,7 +24,7 @@ export default async function ProfilePage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <header>
-        <h1 className="text-2xl font-bold text-[#0c1e3c]">Perfil de la empresa</h1>
+        <h1 className="text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">Perfil de la empresa</h1>
         <p className="text-sm text-[#6b7280]">
           Información usada por la IA para generar propuestas comerciales.
         </p>

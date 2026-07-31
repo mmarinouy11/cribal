@@ -143,7 +143,7 @@ export default async function RunDetailPage({
 
       <header className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#0c1e3c]">Ejecución</h1>
+          <h1 className="text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">Ejecución</h1>
           <p className="text-sm text-[#6b7280]">{formatDateTime(run.startedAt)}</p>
         </div>
         <RunStatusBadge status={run.status} />

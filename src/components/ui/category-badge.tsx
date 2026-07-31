@@ -6,14 +6,15 @@ interface CategoryMeta {
 }
 
 // Spanish label + color per AI category. Cyan family for TIC/tech categories.
+// Labels are kept short so badges stay compact in table rows.
 export const CATEGORY_META: Record<string, CategoryMeta> = {
-  desarrollo_software: { label: 'Desarrollo software', className: 'bg-[#cffafe] text-[#0e7490]' },
-  soporte_tecnico: { label: 'Soporte técnico', className: 'bg-[#dbeafe] text-[#1e40af]' },
+  desarrollo_software: { label: 'Desarrollo', className: 'bg-[#cffafe] text-[#0e7490]' },
+  soporte_tecnico: { label: 'Soporte TI', className: 'bg-[#dbeafe] text-[#1e40af]' },
   cloud: { label: 'Cloud', className: 'bg-[#e0f2fe] text-[#0369a1]' },
-  datos_analytics: { label: 'Datos y analytics', className: 'bg-[#d1fae5] text-[#065f46]' },
-  ciberseguridad: { label: 'Ciberseguridad', className: 'bg-red-100 text-red-700' },
-  qa_testing: { label: 'QA y testing', className: 'bg-orange-100 text-orange-700' },
-  servicios_gestionados: { label: 'Servicios gestionados', className: 'bg-indigo-100 text-indigo-700' },
+  datos_analytics: { label: 'Datos', className: 'bg-[#d1fae5] text-[#065f46]' },
+  ciberseguridad: { label: 'Seguridad', className: 'bg-red-100 text-red-700' },
+  qa_testing: { label: 'QA', className: 'bg-orange-100 text-orange-700' },
+  servicios_gestionados: { label: 'Serv. Gestionados', className: 'bg-indigo-100 text-indigo-700' },
   licencias: { label: 'Licencias', className: 'bg-yellow-100 text-yellow-700' },
   consultoria: { label: 'Consultoría', className: 'bg-[#f0f9ff] text-[#0c1e3c]' },
   no_relevante: { label: 'No relevante', className: 'bg-gray-100 text-gray-600' },

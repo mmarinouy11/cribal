@@ -10,7 +10,7 @@ export function Table({ children, className }: { children: ReactNode; className?
 }
 
 export function THead({ children }: { children: ReactNode }) {
-  return <thead className="bg-[#f0f9ff]">{children}</thead>
+  return <thead className="border-b border-[#e0f2fe] bg-[#f8fafc]">{children}</thead>
 }
 
 export function TBody({ children }: { children: ReactNode }) {
@@ -37,7 +37,7 @@ export function Th({ children, className, ...props }: ThProps) {
   return (
     <th
       className={cn(
-        'px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[#6b7280]',
+        'px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-[0.6px] text-[#94a3b8]',
         className
       )}
       {...props}

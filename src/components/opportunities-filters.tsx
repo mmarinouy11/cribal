@@ -50,7 +50,7 @@ export function OpportunitiesFilters() {
   }
 
   return (
-    <div className="space-y-3 rounded-xl border border-[#e0f2fe] bg-white p-4 shadow-sm">
+    <div className="space-y-3 rounded-lg border border-[#e0f2fe] bg-[#f8fafc] px-4 py-3">
       <div className="flex flex-wrap gap-2">
         {STATUS_OPTIONS.map((option) => {
           const active = selectedStatuses.includes(option.value)
@@ -83,7 +83,7 @@ export function OpportunitiesFilters() {
                 else params.delete('minScore')
               })
             }
-            className="mt-1 rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c]"
+            className="mt-1 h-9 rounded-lg border border-[#e0f2fe] bg-white px-3 text-sm text-[#0c1e3c]"
           >
             <option value="">Todos</option>
             {SCORE_OPTIONS.map((score) => (
@@ -104,7 +104,7 @@ export function OpportunitiesFilters() {
                 else params.delete('category')
               })
             }
-            className="mt-1 rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c]"
+            className="mt-1 h-9 rounded-lg border border-[#e0f2fe] bg-white px-3 text-sm text-[#0c1e3c]"
           >
             <option value="">Todas</option>
             {CATEGORY_OPTIONS.map((option) => (
@@ -122,14 +122,14 @@ export function OpportunitiesFilters() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Título u organismo…"
-            className="mt-1 min-w-[200px] rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c]"
+            className="mt-1 h-9 min-w-[200px] rounded-lg border border-[#e0f2fe] bg-white px-3 text-sm text-[#0c1e3c]"
           />
         </form>
 
         <button
           type="button"
           onClick={clearFilters}
-          className="rounded-lg border border-[#e0f2fe] bg-white px-3 py-2 text-sm text-[#6b7280] hover:bg-[#f0f9ff]"
+          className="h-9 self-end text-[13px] text-[#06b6d4] hover:underline"
         >
           Limpiar filtros
         </button>

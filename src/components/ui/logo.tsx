@@ -1,39 +1,45 @@
-/** Radar / sonar logo mark — concentric arcs from a center dot (detection). */
-export function LogoMark({ size = 28 }: { size?: number }) {
+/** Logo B — a "C" arc with a scan line and scan dot (detection/scanning). */
+export function LogoMark({ size = 32 }: { size?: number }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 28 28"
+      viewBox="0 0 32 32"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden
     >
-      <rect width="28" height="28" rx="7" fill="#06b6d4" />
-      <circle cx="14" cy="14" r="2.5" fill="#0c1e3c" />
+      <rect
+        width="32"
+        height="32"
+        rx="8"
+        fill="#06b6d4"
+        fillOpacity="0.15"
+        stroke="#06b6d4"
+        strokeWidth="0.5"
+        strokeOpacity="0.4"
+      />
+      {/* C arc */}
       <path
-        d="M14 8 A6 6 0 0 1 20 14"
-        stroke="#0c1e3c"
-        strokeWidth="2"
+        d="M22 9 A10 10 0 1 0 22 23"
+        stroke="#06b6d4"
+        strokeWidth="3"
         strokeLinecap="round"
         fill="none"
       />
-      <path
-        d="M14 5 A9 9 0 0 1 23 14"
-        stroke="#0c1e3c"
+      {/* Scan line */}
+      <line
+        x1="10"
+        y1="16"
+        x2="20"
+        y2="16"
+        stroke="#06b6d4"
         strokeWidth="1.5"
         strokeLinecap="round"
-        fill="none"
-        opacity="0.6"
+        opacity="0.45"
       />
-      <path
-        d="M14 2 A12 12 0 0 1 26 14"
-        stroke="#0c1e3c"
-        strokeWidth="1"
-        strokeLinecap="round"
-        fill="none"
-        opacity="0.3"
-      />
+      {/* Scan dot */}
+      <circle cx="20" cy="16" r="2.5" fill="#06b6d4" />
     </svg>
   )
 }

@@ -1,11 +1,12 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { OpportunityStatus } from '@prisma/client'
+import { OpportunityStatus, RunStatus } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
-import { Card, CardBody } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/table'
+import { ClickableRow } from '@/components/ui/clickable-row'
 import { ScoreBadge } from '@/components/ui/score-badge'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { CategoryBadge } from '@/components/ui/category-badge'
@@ -17,6 +18,7 @@ import { ClosingTimeline } from '@/components/dashboard/closing-timeline'
 import { getUrgentOpportunities, getBusinessDaysUntilClosing } from '@/lib/pipeline/urgency'
 import { daysUntilNextRun } from '@/lib/cadence'
 import { startOfToday, addDays } from '@/lib/dates'
+import { cn } from '@/lib/cn'
 import { formatDateDMY, formatSpanishDate, formatRelativeTime, formatDateTime, truncate } from '@/lib/format'
 
 const INACTIVE_STATUSES: OpportunityStatus[] = [
@@ -33,32 +35,38 @@ const OPEN_STATUSES: OpportunityStatus[] = [
 
 function MetricCard({
   icon,
-  iconClass,
+  iconColor,
+  iconBg,
   value,
+  valueClassName,
   label,
   extra,
 }: {
   icon: string
-  iconClass: string
+  iconColor: string
+  iconBg: string
   value: ReactNode
+  valueClassName?: string
   label: string
   extra?: ReactNode
 }) {
   return (
     <Card>
-      <CardBody className="flex items-center gap-4">
+      <div className="p-5">
+        <div className={cn('flex h-10 w-10 items-center justify-center rounded-[10px]', iconBg)}>
+          <i className={cn('ti', icon, 'text-xl', iconColor)} aria-hidden />
+        </div>
         <div
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-xl ${iconClass}`}
-          aria-hidden
+          className={cn(
+            'mt-3 text-[#0c1e3c]',
+            valueClassName ?? 'text-[32px] font-bold leading-none'
+          )}
         >
-          {icon}
+          {value}
         </div>
-        <div className="min-w-0">
-          <div className="text-2xl font-bold text-[#0c1e3c]">{value}</div>
-          <div className="text-sm text-[#6b7280]">{label}</div>
-          {extra}
-        </div>
-      </CardBody>
+        <div className="mt-1 text-xs text-[#64748b]">{label}</div>
+        {extra}
+      </div>
     </Card>
   )
 }
@@ -154,61 +162,81 @@ export default async function DashboardPage() {
           ? 'mañana'
           : `en ${daysToNextRun} días`
 
+  // "Última ejecución" tri-state: never run / last failed / last successful.
+  const lastRunValue = !lastRun
+    ? 'Sin ejecuciones'
+    : !lastSuccessfulRunAt
+      ? 'Última falló'
+      : formatRelativeTime(lastSuccessfulRunAt)
+
   return (
     <div className="space-y-6">
       <OnboardingBanner />
 
       <header className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#0c1e3c]">Dashboard</h1>
-          <p className="text-sm text-[#6b7280]">
+          <h1 className="text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">Dashboard</h1>
+          <p className="text-[13px] text-[#94a3b8]">
             {session.user.companyName} · {formatSpanishDate(new Date())}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <RunPipelineButton />
-          <Link href="/oportunidades" className={buttonClass('secondary')}>
-            Ver todas las oportunidades
+          <Link
+            href="/oportunidades"
+            className="text-[13px] font-medium text-[#06b6d4] hover:underline"
+          >
+            Ver todas las oportunidades →
           </Link>
         </div>
       </header>
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard
-          icon="🎯"
-          iconClass="bg-blue-50 text-blue-600"
+          icon="ti-briefcase"
+          iconColor="text-[#06b6d4]"
+          iconBg="bg-[#e0f2fe]"
           value={activeCount}
           label="Oportunidades activas"
         />
         <MetricCard
-          icon="🆕"
-          iconClass="bg-[#d1fae5] text-[#059669]"
+          icon="ti-sparkles"
+          iconColor="text-[#8b5cf6]"
+          iconBg="bg-[#ede9fe]"
           value={newThisWeek}
           label="Nuevas esta semana"
         />
         <MetricCard
-          icon="⭐"
-          iconClass="bg-amber-50 text-amber-600"
+          icon="ti-star"
+          iconColor="text-[#f59e0b]"
+          iconBg="bg-[#fef3c7]"
           value={highlyRelevant}
           label="Muy relevantes"
         />
         <MetricCard
-          icon="▶️"
-          iconClass="bg-indigo-50 text-indigo-600"
-          value={lastSuccessfulRunAt ? formatRelativeTime(lastSuccessfulRunAt) : 'Nunca ejecutado'}
+          icon="ti-clock"
+          iconColor="text-[#10b981]"
+          iconBg="bg-[#d1fae5]"
+          value={lastRunValue}
+          valueClassName="text-lg font-semibold leading-tight"
           label="Última ejecución"
           extra={
-            <div className="mt-1 space-y-1">
+            <div className="mt-1.5 space-y-1">
               {nextRunLabel && (
-                <div className="text-xs text-[#6b7280]">Próxima: {nextRunLabel}</div>
+                <div className="text-[11px] text-[#94a3b8]">Próxima: {nextRunLabel}</div>
               )}
-              {lastRun && <RunStatusBadge status={lastRun.status} />}
+              {lastSuccessfulRunAt ? (
+                <RunStatusBadge status={RunStatus.COMPLETED} />
+              ) : lastRun ? (
+                <RunStatusBadge status={RunStatus.FAILED} />
+              ) : null}
             </div>
           }
         />
         <MetricCard
-          icon="⏰"
-          iconClass="bg-red-50 text-red-600"
+          icon="ti-alarm"
+          iconColor="text-[#ef4444]"
+          iconBg="bg-[#fee2e2]"
           value={closingThisWeekCount}
           label="Cierran esta semana"
         />
@@ -218,17 +246,17 @@ export default async function DashboardPage() {
 
       {urgentOpportunities.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-[#dc2626]">⚡ Atención requerida</h2>
+          <h2 className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.4px] text-[#dc2626]">
+            <i className="ti ti-alert-triangle" aria-hidden />
+            Atención requerida
+          </h2>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {urgentOpportunities.map((opp) => {
               const businessDays = opp.closingDate
                 ? getBusinessDaysUntilClosing(opp.closingDate)
                 : 0
               return (
-                <div
-                  key={opp.id}
-                  className="rounded-xl border border-red-100 bg-red-50 p-4"
-                >
+                <div key={opp.id} className="rounded-xl border border-red-100 bg-red-50 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-medium text-[#0c1e3c]">{truncate(opp.title, 60)}</p>
@@ -255,10 +283,12 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      <Card>
+      <Card className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-[#e0f2fe] px-5 py-4">
-          <h2 className="font-semibold text-[#0c1e3c]">Oportunidades recientes</h2>
-          <Link href="/oportunidades" className="text-sm text-[#0e7490] hover:underline">
+          <h2 className="text-[13px] font-semibold uppercase tracking-[0.4px] text-[#0c1e3c]">
+            Oportunidades recientes
+          </h2>
+          <Link href="/oportunidades" className="text-[13px] text-[#06b6d4] hover:underline">
             Ver todas →
           </Link>
         </div>
@@ -280,18 +310,13 @@ export default async function DashboardPage() {
             </THead>
             <TBody>
               {recentOpportunities.map((opp) => (
-                <Tr key={opp.id}>
+                <ClickableRow key={opp.id} href={`/oportunidades/${opp.id}`}>
                   <Td className="whitespace-nowrap text-[#6b7280]">
                     {formatDateDMY(opp.publicationDate ?? opp.createdAt)}
                   </Td>
                   <Td className="text-[#6b7280]">{truncate(opp.organismo ?? '—', 30)}</Td>
                   <Td>
-                    <Link
-                      href={`/oportunidades/${opp.id}`}
-                      className="font-medium text-[#0c1e3c] hover:underline"
-                    >
-                      {truncate(opp.title, 60)}
-                    </Link>
+                    <span className="font-medium text-[#0c1e3c]">{truncate(opp.title, 60)}</span>
                   </Td>
                   <Td>
                     <CategoryBadge category={opp.category} />
@@ -302,7 +327,7 @@ export default async function DashboardPage() {
                   <Td>
                     <StatusBadge status={opp.status} />
                   </Td>
-                </Tr>
+                </ClickableRow>
               ))}
             </TBody>
           </Table>

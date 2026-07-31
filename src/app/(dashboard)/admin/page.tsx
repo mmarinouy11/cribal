@@ -56,7 +56,7 @@ export default async function AdminPage() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-bold text-[#0c1e3c]">Admin</h1>
+        <h1 className="text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">Admin</h1>
         <p className="text-sm text-[#6b7280]">Gestión de empresas, usuarios y sistema.</p>
       </header>
 

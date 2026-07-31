@@ -48,18 +48,19 @@ export function Sidebar({ companyName, userName, userEmail, isAdmin }: SidebarPr
   return (
     <aside className="fixed left-0 top-0 flex h-screen w-60 flex-col border-r border-[#1e3a5f] bg-[#0c1e3c]">
       {/* Brand */}
-      <div className="flex items-center gap-2.5 px-4 pb-1 pt-5">
-        <LogoMark size={28} />
+      <div className="flex items-center gap-2.5 px-4 pt-5">
+        <LogoMark size={32} />
         <span
-          className="text-lg font-semibold text-[#f0f9ff]"
-          style={{ letterSpacing: '-0.5px' }}
+          className="text-[17px] font-semibold tracking-[-0.4px] text-[#f0f9ff]"
         >
           cribal
         </span>
       </div>
-      <div className="truncate px-4 pb-3 text-[11px] text-[#4b8fa8]">{companyName}</div>
+      <div className="truncate px-4 pt-1 text-[11px] tracking-[0.2px] text-[#4b8fa8]">
+        {companyName}
+      </div>
 
-      <div className="border-t border-[#1e3a5f]" />
+      <div className="my-2 border-t border-[#1e3a5f]" />
 
       {/* Navigation */}
       <nav className="flex-1 space-y-0.5 px-3 py-4">
@@ -84,20 +85,24 @@ export function Sidebar({ companyName, userName, userEmail, isAdmin }: SidebarPr
       </nav>
 
       {/* User section */}
-      <div className="flex items-center gap-3 bg-[#08152a] px-4 py-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#162d52] text-xs font-semibold text-[#06b6d4]">
-          {initials(userName)}
+      <div className="bg-[#08152a] px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#162d52] text-xs font-semibold text-[#06b6d4]">
+            {initials(userName)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] text-[#e2e8f0]">{userName}</div>
+            <div className="truncate text-[11px] text-[#64748b]">{userEmail}</div>
+          </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] text-[#e2e8f0]">{userName}</div>
-          <div className="truncate text-[11px] text-[#64748b]">{userEmail}</div>
+        <div className="mt-1.5 text-right">
+          <button
+            onClick={() => signOut({ callbackUrl: '/login' })}
+            className="text-[11px] text-[#64748b] transition-colors hover:text-[#06b6d4]"
+          >
+            Salir
+          </button>
         </div>
-        <button
-          onClick={() => signOut({ callbackUrl: '/login' })}
-          className="text-[11px] text-[#64748b] transition-colors hover:text-[#06b6d4]"
-        >
-          Salir
-        </button>
       </div>
     </aside>
   )
