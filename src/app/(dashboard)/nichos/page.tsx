@@ -6,6 +6,8 @@ import {
   NicheStatus,
   SignalStrength,
   FailureType,
+  type Niche,
+  type FailedTender,
 } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
@@ -67,33 +69,53 @@ export default async function NichesPage({
   const status = firstValue(searchParams.status)
   const organismo = firstValue(searchParams.organismo)
 
-  const where: Prisma.NicheWhereInput = { companyId }
-  if (isValidEnum(SignalStrength, signal)) where.signalStrength = signal
-  if (isValidEnum(NicheCategory, category)) where.category = category
-  if (isValidEnum(NicheStatus, status)) {
-    where.status = status
+  // Category=FUERA is an audit view: it lists the discarded failures (which never
+  // become niches) so the user can spot misclassifications.
+  const isFueraAudit = category === NicheCategory.FUERA
+
+  let niches: Niche[] = []
+  let discarded: FailedTender[] = []
+
+  if (isFueraAudit) {
+    const fWhere: Prisma.FailedTenderWhereInput = { companyId, nicheCategory: NicheCategory.FUERA }
+    if (isValidEnum(FailureType, failureType)) fWhere.failureType = failureType
+    if (organismo) fWhere.organismo = { contains: organismo, mode: 'insensitive' }
+    discarded = await prisma.failedTender.findMany({
+      where: fWhere,
+      orderBy: { publicationDate: 'desc' },
+      take: 200,
+    })
   } else {
-    // By default hide discarded/archived niches; a status filter overrides this.
-    where.status = { notIn: [NicheStatus.DESCARTADO, NicheStatus.ARCHIVADO] }
-  }
-  if (isValidEnum(FailureType, failureType)) {
-    if (failureType === FailureType.DESIERTA) where.desiertaCount = { gt: 0 }
-    else where.rechazadaCount = { gt: 0 }
-  }
-  if (organismo) where.organismo = { contains: organismo, mode: 'insensitive' }
-
-  const niches = await prisma.niche.findMany({ where })
-
-  // Sort: signal desc → category (adyacente first) → lastFailureAt desc.
-  niches.sort((a, b) => {
-    if (SIGNAL_RANK[a.signalStrength] !== SIGNAL_RANK[b.signalStrength]) {
-      return SIGNAL_RANK[a.signalStrength] - SIGNAL_RANK[b.signalStrength]
+    const where: Prisma.NicheWhereInput = { companyId }
+    if (isValidEnum(SignalStrength, signal)) where.signalStrength = signal
+    if (category === NicheCategory.NUCLEO || category === NicheCategory.ADYACENTE) {
+      where.category = category
     }
-    if (CATEGORY_RANK[a.category] !== CATEGORY_RANK[b.category]) {
-      return CATEGORY_RANK[a.category] - CATEGORY_RANK[b.category]
+    if (isValidEnum(NicheStatus, status)) {
+      where.status = status
+    } else {
+      // By default hide discarded/archived niches; a status filter overrides this.
+      where.status = { notIn: [NicheStatus.DESCARTADO, NicheStatus.ARCHIVADO] }
     }
-    return b.lastFailureAt.getTime() - a.lastFailureAt.getTime()
-  })
+    if (isValidEnum(FailureType, failureType)) {
+      if (failureType === FailureType.DESIERTA) where.desiertaCount = { gt: 0 }
+      else where.rechazadaCount = { gt: 0 }
+    }
+    if (organismo) where.organismo = { contains: organismo, mode: 'insensitive' }
+
+    niches = await prisma.niche.findMany({ where })
+
+    // Sort: signal desc → category (adyacente first) → lastFailureAt desc.
+    niches.sort((a, b) => {
+      if (SIGNAL_RANK[a.signalStrength] !== SIGNAL_RANK[b.signalStrength]) {
+        return SIGNAL_RANK[a.signalStrength] - SIGNAL_RANK[b.signalStrength]
+      }
+      if (CATEGORY_RANK[a.category] !== CATEGORY_RANK[b.category]) {
+        return CATEGORY_RANK[a.category] - CATEGORY_RANK[b.category]
+      }
+      return b.lastFailureAt.getTime() - a.lastFailureAt.getTime()
+    })
+  }
 
   return (
     <div className="space-y-6">
@@ -109,7 +131,55 @@ export default async function NichesPage({
 
       <NicheFilters />
 
-      {niches.length === 0 ? (
+      {isFueraAudit ? (
+        <div className="space-y-4">
+          <p className="rounded-lg border border-[#e0f2fe] bg-[#f8fafc] px-4 py-3 text-[13px] text-[#6b7280]">
+            Fallos descartados por la IA como fuera del alcance de la empresa. No generan nichos;
+            se listan para auditar posibles errores de clasificación.
+          </p>
+          {discarded.length === 0 ? (
+            <Card>
+              <p className="px-5 py-12 text-center text-sm text-[#6b7280]">
+                No hay fallos descartados.
+              </p>
+            </Card>
+          ) : (
+            discarded.map((failure) => (
+              <div
+                key={failure.id}
+                className="rounded-xl border border-[#e0f2fe] bg-white p-5 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <NicheCategoryBadge category="FUERA" />
+                    <FailureTypeTag type={failure.failureType} count={1} />
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold text-[#6b7280]">
+                    Encaje {failure.fitScore}/10
+                  </span>
+                </div>
+                <h2 className="mt-3 font-medium text-[#0c1e3c]">{failure.title}</h2>
+                {failure.organismo && (
+                  <p className="mt-1 text-sm text-[#6b7280]">{failure.organismo}</p>
+                )}
+                {failure.fitReason && (
+                  <p className="mt-2 text-sm text-[#334155]">{failure.fitReason}</p>
+                )}
+                <div className="mt-3">
+                  <a
+                    href={failure.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[13px] font-medium text-[#0e7490] hover:underline"
+                  >
+                    Ver en ARCE →
+                  </a>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : niches.length === 0 ? (
         <Card>
           <p className="px-5 py-12 text-center text-sm text-[#6b7280]">
             Todavía no detectamos nichos. El pipeline los busca en cada ejecución.

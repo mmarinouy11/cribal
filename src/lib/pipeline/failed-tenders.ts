@@ -91,8 +91,8 @@ async function enrichFailure(
  *
  * Deliberately applies NO keyword or exclusion filter — the goal is to discover
  * markets the company does not serve yet. Every new failure is classified by the
- * AI; only FUERA results are dropped. The rest are saved regardless of the
- * company's minimumScore, then aggregated into niches.
+ * AI and persisted (FUERA included, so the dedup skips it next run); only
+ * non-FUERA failures are aggregated into niches and surfaced in the UI.
  */
 export async function ingestFailedTenders(
   company: CompanyConfig,
@@ -166,9 +166,10 @@ export async function ingestFailedTenders(
     const classification = classificationById.get(item.failureId)
     if (!classification) continue // Batch dropped — skip this failure.
 
+    // Persist every classified failure, FUERA included. FUERA records never reach
+    // a niche or the UI, but storing them lets the failureId dedup skip them on
+    // later runs instead of re-fetching and re-classifying them forever.
     const category = CATEGORY_MAP[classification.category] ?? 'FUERA'
-    if (category === 'FUERA') continue
-
     const enriched = enrichedById.get(item.failureId) ?? { articleCodes: [], tenderItems: [] }
     const fitScore = Math.max(0, Math.min(10, Math.round(classification.fitScore)))
 

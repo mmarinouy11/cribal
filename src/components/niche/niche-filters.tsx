@@ -9,6 +9,13 @@ const FAILURE_TYPE_OPTIONS = [
   { value: 'OFERTAS_RECHAZADAS', label: 'Ofertas rechazadas' },
 ]
 
+// FUERA is an audit view (discarded failures), off by default and kept separate
+// from the real niche categories.
+const CATEGORY_FILTER_OPTIONS = [
+  ...NICHE_CATEGORY_OPTIONS,
+  { value: 'FUERA', label: 'Descartados (fuera)' },
+]
+
 function Select({
   label,
   param,
@@ -71,7 +78,7 @@ export function NicheFilters() {
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-lg border border-[#e0f2fe] bg-[#f8fafc] px-4 py-3">
       <Select label="Señal" param="signal" allLabel="Todas" options={SIGNAL_OPTIONS} />
-      <Select label="Categoría" param="category" allLabel="Todas" options={NICHE_CATEGORY_OPTIONS} />
+      <Select label="Categoría" param="category" allLabel="Todas" options={CATEGORY_FILTER_OPTIONS} />
       <Select label="Tipo de fallo" param="failureType" allLabel="Todos" options={FAILURE_TYPE_OPTIONS} />
       <Select label="Estado" param="status" allLabel="Todos" options={NICHE_STATUS_OPTIONS} />
 
