@@ -75,7 +75,7 @@ export function ClosingTimeline({ opportunities }: ClosingTimelineProps) {
   return (
     <div className="rounded-xl border border-[#e0f2fe] bg-white p-5 shadow-sm">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-xs font-bold uppercase tracking-wide text-[#0c1e3c]">
+        <h2 className="text-[13px] font-semibold uppercase tracking-[0.4px] text-[#0c1e3c]">
           Timeline de cierres
         </h2>
         <div className="flex flex-wrap gap-3">
@@ -92,7 +92,7 @@ export function ClosingTimeline({ opportunities }: ClosingTimelineProps) {
       </div>
 
       {!hasAny ? (
-        <p className="py-6 text-center text-sm text-[#9ca3af]">
+        <p className="flex h-6 items-center text-sm text-[#94a3b8]">
           Sin vencimientos próximos en los próximos 14 días
         </p>
       ) : (

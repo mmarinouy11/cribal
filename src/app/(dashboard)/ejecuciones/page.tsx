@@ -46,8 +46,8 @@ export default async function RunsPage({
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-[#0c1e3c]">Historial de ejecuciones</h1>
-        <RunPipelineButton label="▶ Correr ahora" />
+        <h1 className="text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">Historial de ejecuciones</h1>
+        <RunPipelineButton label="Correr ahora" />
       </header>
 
       <Card>

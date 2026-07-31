@@ -12,7 +12,7 @@ interface RunPipelineButtonProps {
 }
 
 export function RunPipelineButton({
-  label = '▶ Correr pipeline ahora',
+  label = 'Correr pipeline ahora',
   variant = 'primary',
 }: RunPipelineButtonProps) {
   const router = useRouter()
@@ -35,7 +35,14 @@ export function RunPipelineButton({
   return (
     <>
       <Button variant={variant} onClick={handleClick} disabled={isPending}>
-        {isPending ? 'Iniciando…' : label}
+        {isPending ? (
+          'Iniciando…'
+        ) : (
+          <>
+            <i className="ti ti-player-play" aria-hidden />
+            {label}
+          </>
+        )}
       </Button>
       {toast && (
         <Toast

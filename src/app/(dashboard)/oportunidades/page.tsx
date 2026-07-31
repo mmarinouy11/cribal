@@ -1,14 +1,13 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { OpportunityStatus, Prisma } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
 import { Card } from '@/components/ui/card'
 import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/table'
+import { ClickableRow } from '@/components/ui/clickable-row'
 import { ScoreBadge } from '@/components/ui/score-badge'
 import { CategoryBadge } from '@/components/ui/category-badge'
 import { Pagination } from '@/components/ui/pagination'
-import { buttonClass } from '@/components/ui/button-styles'
 import { OpportunitiesFilters } from '@/components/opportunities-filters'
 import { StatusSelect } from '@/components/status-select'
 import { getEffectiveCompanyId } from '@/lib/tenant'
@@ -85,15 +84,17 @@ export default async function OpportunitiesPage({
   return (
     <div className="space-y-6">
       <header className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold text-[#0c1e3c]">Oportunidades</h1>
-        <span className="rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-sm font-medium text-[#374151]">
+        <h1 className="text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">
+          Oportunidades
+        </h1>
+        <span className="rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-sm font-medium text-[#0e7490]">
           {total}
         </span>
       </header>
 
       <OpportunitiesFilters />
 
-      <Card>
+      <Card className="overflow-hidden">
         {opportunities.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-[#6b7280]">
             No hay oportunidades que coincidan con los filtros.
@@ -108,23 +109,17 @@ export default async function OpportunitiesPage({
                 <Th>Categoría</Th>
                 <Th>Score</Th>
                 <Th>Estado</Th>
-                <Th>Acciones</Th>
               </Tr>
             </THead>
             <TBody>
               {opportunities.map((opp) => (
-                <Tr key={opp.id}>
+                <ClickableRow key={opp.id} href={`/oportunidades/${opp.id}`}>
                   <Td className="whitespace-nowrap text-[#6b7280]">
                     {formatDateDMY(opp.publicationDate)}
                   </Td>
                   <Td className="text-[#6b7280]">{truncate(opp.organismo ?? '—', 30)}</Td>
                   <Td>
-                    <Link
-                      href={`/oportunidades/${opp.id}`}
-                      className="font-medium text-[#0c1e3c] hover:underline"
-                    >
-                      {truncate(opp.title, 60)}
-                    </Link>
+                    <span className="font-medium text-[#0c1e3c]">{truncate(opp.title, 60)}</span>
                   </Td>
                   <Td>
                     <CategoryBadge category={opp.category} />
@@ -135,15 +130,7 @@ export default async function OpportunitiesPage({
                   <Td>
                     <StatusSelect id={opp.id} status={opp.status} />
                   </Td>
-                  <Td>
-                    <Link
-                      href={`/oportunidades/${opp.id}`}
-                      className={buttonClass('secondary', 'sm')}
-                    >
-                      Ver
-                    </Link>
-                  </Td>
-                </Tr>
+                </ClickableRow>
               ))}
             </TBody>
           </Table>

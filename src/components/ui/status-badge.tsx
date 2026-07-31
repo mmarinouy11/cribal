@@ -1,5 +1,5 @@
 import { OpportunityStatus } from '@prisma/client'
-import { Badge } from './badge'
+import { cn } from '@/lib/cn'
 
 interface StatusMeta {
   label: string
@@ -7,8 +7,9 @@ interface StatusMeta {
 }
 
 // Spanish label + color per opportunity status (Navy + Cyan brand).
+// NUEVA uses an outline style; the rest are filled pills.
 export const STATUS_META: Record<OpportunityStatus, StatusMeta> = {
-  NUEVA: { label: 'Nueva', className: 'bg-[#f0f9ff] text-[#0e7490] border border-[#06b6d4]' },
+  NUEVA: { label: 'Nueva', className: 'bg-transparent text-[#0e7490] border border-[#06b6d4]' },
   REVISANDO: { label: 'Revisando', className: 'bg-[#fef9c3] text-[#854d0e]' },
   RELEVANTE: { label: 'Relevante', className: 'bg-[#d1fae5] text-[#065f46]' },
   DESCARTADA: { label: 'Descartada', className: 'bg-[#f1f5f9] text-[#94a3b8]' },
@@ -25,5 +26,14 @@ export const STATUS_OPTIONS: { value: OpportunityStatus; label: string }[] =
 
 export function StatusBadge({ status }: { status: OpportunityStatus }) {
   const meta = STATUS_META[status]
-  return <Badge className={meta.className}>{meta.label}</Badge>
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium',
+        meta.className
+      )}
+    >
+      {meta.label}
+    </span>
+  )
 }
