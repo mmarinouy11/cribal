@@ -212,6 +212,9 @@ export default async function NichesPage({
                 </div>
 
                 <h2 className="mt-3 font-semibold text-[#0c1e3c]">{niche.label}</h2>
+                {niche.objectDescription && (
+                  <p className="mt-1 text-sm text-[#334155]">{niche.objectDescription}</p>
+                )}
                 <p className="mt-1 text-sm text-[#6b7280]">
                   {niche.failureCount} llamado{niche.failureCount === 1 ? '' : 's'} fallido
                   {niche.failureCount === 1 ? '' : 's'}

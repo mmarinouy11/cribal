@@ -5,7 +5,7 @@ import { normalize, type NormalizedTender } from './normalizer'
 import { classifyFailures, type FailureToClassify } from './niche-classifier'
 import { recomputeNiches } from './niches'
 import { fetchArceHtml, delay } from '../scraper/fetch-arce'
-import { parseTenderDetail, type TenderItem } from '../scraper/arce-parser'
+import { parseTenderDetail, extractBuyObject, type TenderItem } from '../scraper/arce-parser'
 
 const ARCE_DETAIL_BASE = 'https://www.comprasestatales.gub.uy/consultas/detalle/id'
 const USER_AGENT = 'Mozilla/5.0 (compatible; Cribal/1.0)'
@@ -41,6 +41,17 @@ function detailUrl(tenderId: string): string {
   return `${ARCE_DETAIL_BASE}/${tenderId}`
 }
 
+/** The "call" view (`/mostrar-llamado/1`) carries the items + article codes. */
+function callViewUrl(tenderId: string): string {
+  return `${ARCE_DETAIL_BASE}/${tenderId}/mostrar-llamado/1`
+}
+
+export interface FailureEnrichment {
+  articleCodes: string[]
+  tenderItems: TenderItem[]
+  objectDescription: string | null
+}
+
 /** Fetch one failure feed and tag every item with its failureType. */
 async function fetchFailureFeed(
   parser: Parser,
@@ -65,24 +76,34 @@ async function fetchFailureFeed(
   return tagged
 }
 
-/** Enrich a failure from its detail page: article codes + tender items. */
-async function enrichFailure(
-  tenderId: string
-): Promise<{ articleCodes: string[]; tenderItems: TenderItem[] }> {
-  const html = await fetchArceHtml(detailUrl(tenderId))
-  if (!html) return { articleCodes: [], tenderItems: [] }
-  try {
-    const detail = parseTenderDetail(html)
-    const tenderItems = detail.items
-    const articleCodes = tenderItems
-      .map((item) => item.articleCode)
-      .filter((code): code is string => Boolean(code))
-    return { articleCodes, tenderItems }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[CRIBAL][NICHOS] Error enriqueciendo fallo ${tenderId}: ${message}`)
-    return { articleCodes: [], tenderItems: [] }
+/**
+ * Enrich a failure from ARCE. A failed tender has two views and the data we need
+ * is split across them: the base detail page holds the object description (and the
+ * resolution), while the `/mostrar-llamado/1` call view holds the items and their
+ * article codes (a desierta awards nothing, so the base page has no items block).
+ * Fetches both, keeping a 500ms delay between requests.
+ */
+export async function enrichFailure(tenderId: string): Promise<FailureEnrichment> {
+  const baseHtml = await fetchArceHtml(detailUrl(tenderId))
+  const objectDescription = baseHtml ? extractBuyObject(baseHtml) : null
+
+  await delay(ENRICH_DELAY_MS)
+
+  const callHtml = await fetchArceHtml(callViewUrl(tenderId))
+  let tenderItems: TenderItem[] = []
+  if (callHtml) {
+    try {
+      tenderItems = parseTenderDetail(callHtml).items
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[CRIBAL][NICHOS] Error parseando llamado ${tenderId}: ${message}`)
+    }
   }
+  const articleCodes = tenderItems
+    .map((item) => item.articleCode)
+    .filter((code): code is string => Boolean(code))
+
+  return { articleCodes, tenderItems, objectDescription }
 }
 
 /**
@@ -142,7 +163,7 @@ export async function ingestFailedTenders(
   }
 
   // 4 & 5. No keyword/exclusion filter. Enrich each new failure (500ms apart).
-  const enrichedById = new Map<string, { articleCodes: string[]; tenderItems: TenderItem[] }>()
+  const enrichedById = new Map<string, FailureEnrichment>()
   for (const item of fresh) {
     await delay(ENRICH_DELAY_MS)
     enrichedById.set(item.failureId, await enrichFailure(item.tender.tenderId))
@@ -170,7 +191,11 @@ export async function ingestFailedTenders(
     // a niche or the UI, but storing them lets the failureId dedup skip them on
     // later runs instead of re-fetching and re-classifying them forever.
     const category = CATEGORY_MAP[classification.category] ?? 'FUERA'
-    const enriched = enrichedById.get(item.failureId) ?? { articleCodes: [], tenderItems: [] }
+    const enriched = enrichedById.get(item.failureId) ?? {
+      articleCodes: [],
+      tenderItems: [],
+      objectDescription: null,
+    }
     const fitScore = Math.max(0, Math.min(10, Math.round(classification.fitScore)))
 
     try {
@@ -183,6 +208,7 @@ export async function ingestFailedTenders(
           url: item.tender.url,
           title: item.tender.title,
           description: item.tender.description || null,
+          objectDescription: enriched.objectDescription,
           organismo: item.tender.organismo || null,
           publicationDate: item.tender.publicationDate,
           articleCodes: enriched.articleCodes,
