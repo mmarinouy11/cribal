@@ -40,7 +40,8 @@ export interface AdjudicatedItem {
   articleCode: string | null
   providerName: string
   providerRut: string | null
-  quantity: string | null
+  quantity: number | null // e.g. 1.00 from "1,00 UNIDAD"
+  unit: string | null // e.g. "UNIDAD", "HORA", "MENSUAL"
   unitPriceNoTax: number | null
   totalWithTax: number | null
   currency: string
@@ -69,6 +70,8 @@ function decodeEntities(str: string): string {
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&sol;/gi, '/')
+    .replace(/&ordm;/gi, 'º')
     .replace(/&aacute;/gi, 'á')
     .replace(/&eacute;/gi, 'é')
     .replace(/&iacute;/gi, 'í')
@@ -134,6 +137,39 @@ export function parseUruguayanAmount(text: string): number | null {
   }
 
   return null
+}
+
+/**
+ * Parse a bare Uruguayan-formatted number: "1,00" → 1, "1.234,50" → 1234.5,
+ * "10" → 10. Unlike parseUruguayanAmount this accepts plain integers with no
+ * grouping (used for quantities like "10 UNIDAD").
+ */
+export function parseUruguayanNumber(text: string): number | null {
+  if (!text) return null
+  const t = text.trim()
+  const withDecimals = t.match(/^(\d{1,3}(?:\.\d{3})*|\d+),(\d+)$/)
+  if (withDecimals) {
+    return Number(`${withDecimals[1].replace(/\./g, '')}.${withDecimals[2]}`)
+  }
+  const grouped = t.match(/^\d{1,3}(?:\.\d{3})+$/)
+  if (grouped) return Number(grouped[0].replace(/\./g, ''))
+  const plain = t.match(/^\d+$/)
+  if (plain) return Number(plain[0])
+  return null
+}
+
+/**
+ * Split a quantity string like "1,00 UNIDAD" / "10 HORA" into its numeric value
+ * and unit of measure (everything after the number).
+ */
+export function splitQuantityUnit(text: string): {
+  quantity: number | null
+  unit: string | null
+} {
+  if (!text) return { quantity: null, unit: null }
+  const match = text.trim().match(/^([\d.]*\d(?:,\d+)?)\s+(.+)$/)
+  if (!match) return { quantity: null, unit: text.trim() || null }
+  return { quantity: parseUruguayanNumber(match[1]), unit: match[2].trim() || null }
 }
 
 /** "27/08/2026 12:00hs" or "27/08/2026" → Date (local time). */
@@ -304,59 +340,109 @@ function extractProviderName(block: string): string {
   return stripTags(raw)
 }
 
+/**
+ * Read a `<ul class="list-inline">` where labels and values alternate as sibling
+ * `<li>` elements — "<li>Cantidad:</li><li><strong>1,00 UNIDAD</strong></li>" —
+ * into a label→value map. Labels are lowercased with the trailing colon stripped.
+ */
+function extractLiPairs(block: string): Map<string, string> {
+  const ul = block.match(/<ul[^>]*class="[^"]*list-inline[^"]*"[^>]*>([\s\S]*?)<\/ul>/i)
+  const scope = ul ? ul[1] : ''
+  const cells = Array.from(scope.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)).map((m) =>
+    stripTags(m[1])
+  )
+  const map = new Map<string, string>()
+  for (let i = 0; i + 1 < cells.length; i += 2) {
+    const label = cells[i].replace(/\s*:\s*$/, '').trim().toLowerCase()
+    if (label) map.set(label, cells[i + 1].trim())
+  }
+  return map
+}
+
 function extractAdjudicatedItems(html: string, pageCurrency: string): AdjudicatedItem[] {
   const items: AdjudicatedItem[] = []
 
-  // Each adjudicated item is introduced by a heading carrying its article code
-  // ("… (Cód. Artículo 13175)"). Anchor per-item blocks on those headings so the
-  // article code stays aligned with the provider and price that follow it.
-  const headingRegex = /<(h[1-6])[^>]*>([\s\S]*?)<\/\1>/gi
-  const headings: { index: number; text: string; code: string }[] = []
+  // Each adjudicated item is a `<div class="desc-item">` block. Slice from one
+  // desc-item to the next so each block's own heading, provider and price stay
+  // together (the divs nest, so we can't rely on the closing </div>).
+  const starts: number[] = []
+  const descRegex = /class="[^"]*\bdesc-item\b[^"]*"/gi
   let match: RegExpExecArray | null
-  while ((match = headingRegex.exec(html)) !== null) {
-    const text = stripTags(match[2])
-    const codeMatch = text.match(/C[óo]d\.?\s*Art[íi]culo\s*(\d+)/i)
-    if (codeMatch) headings.push({ index: match.index, text, code: codeMatch[1] })
-  }
+  while ((match = descRegex.exec(html)) !== null) starts.push(match.index)
 
-  for (let i = 0; i < headings.length; i++) {
-    const heading = headings[i]
-    const end = i + 1 < headings.length ? headings[i + 1].index : html.length
-    const block = html.slice(heading.index, end)
+  for (let i = 0; i < starts.length; i++) {
+    const block = html.slice(starts[i], i + 1 < starts.length ? starts[i + 1] : html.length)
 
+    // Heading: "<span class="buy-item-title-small">Ítem Nº 1</span> NAME <span
+    // class="cod-art">(Cód. Artículo 13175)</span>". Strip the two spans to get
+    // the clean item name.
+    const h3 = block.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i)
+    const h3html = h3 ? h3[1] : ''
+    const h3text = stripTags(h3html)
+    const codeMatch = h3text.match(/C[óo]d\.?\s*Art[íi]culo\s*(\d+)/i)
+    const numberMatch = h3text.match(/[íi]tem\s*N[ºo°]?\s*(\d+)/i)
+    const name = stripTags(
+      h3html
+        .replace(/<span[^>]*buy-item-title-small[^>]*>[\s\S]*?<\/span>/i, '')
+        .replace(/<span[^>]*cod-art[^>]*>[\s\S]*?<\/span>/i, '')
+    ).trim()
+
+    // Provider: "<h4 class="provider-name">Proveedor: <strong>NAME</strong>
+    // <span>(RUT 213453280018)</span></h4>".
+    const providerH4 = block.match(
+      /<h4[^>]*class="[^"]*provider-name[^"]*"[^>]*>([\s\S]*?)<\/h4>/i
+    )
     const providerName = extractProviderName(block)
-    const blockText = stripTags(block)
-    const rutMatch = blockText.match(/RUT\s*(\d{6,})/i)
+    const rutMatch = providerH4 ? stripTags(providerH4[1]).match(/RUT\s*(\d+)/i) : null
 
-    const unitRaw = extractLabeledValue(block, 'Precio unitario sin impuestos')
+    const pairs = extractLiPairs(block)
+    const quantityRaw = pairs.get('cantidad') ?? ''
+    const unitPriceRaw = pairs.get('precio unitario sin impuestos') ?? ''
     const totalRaw =
-      extractLabeledValue(block, 'Precio total con impuestos') ??
-      extractLabeledValue(block, 'Precio total')
+      pairs.get('monto total con impuestos') ?? pairs.get('precio total con impuestos') ?? ''
 
-    // Currency comes from the amount's own prefix so mixed-currency pages don't
-    // corrupt the statistics; fall back to the page currency only when neither
-    // amount is present.
-    const currency = unitRaw || totalRaw ? detectCurrency(unitRaw ?? totalRaw ?? '') : pageCurrency
+    const { quantity, unit } = splitQuantityUnit(quantityRaw)
 
-    const name = heading.text
-      .split(/\(?\s*C[óo]d\.?\s*Art[íi]culo/i)[0]
-      .replace(/[-–—:]\s*$/, '')
-      .trim()
+    // Currency from the amount's own prefix so mixed-currency pages don't corrupt
+    // the statistics; fall back to the page currency only when absent.
+    const currency =
+      unitPriceRaw || totalRaw ? detectCurrency(unitPriceRaw || totalRaw) : pageCurrency
 
     items.push({
-      itemNumber: i + 1,
+      itemNumber: numberMatch ? Number(numberMatch[1]) : i + 1,
       name: name || `Ítem ${i + 1}`,
-      articleCode: heading.code,
+      articleCode: codeMatch ? codeMatch[1] : null,
       providerName,
       providerRut: rutMatch ? rutMatch[1] : null,
-      quantity: null,
-      unitPriceNoTax: unitRaw ? parseUruguayanAmount(unitRaw) : null,
+      quantity,
+      unit,
+      unitPriceNoTax: unitPriceRaw ? parseUruguayanAmount(unitPriceRaw) : null,
       totalWithTax: totalRaw ? parseUruguayanAmount(totalRaw) : null,
       currency,
     })
   }
 
   return items
+}
+
+/**
+ * Read the purchase date from the left summary column. ARCE uses the same
+ * label/value sibling-`<li>` pattern as the items, labelled "Fecha de Compra"
+ * (some adjudications show "Fecha Resolución" instead). Falls back to a whole-page
+ * label scan.
+ */
+function extractPurchaseDate(html: string): Date | null {
+  const labels = ['Fecha de Compra', 'Fecha Resolución', 'Fecha de la compra']
+  for (const label of labels) {
+    const raw = extractLabeledValue(html, label)
+    const date = raw ? parseUruguayanDate(raw) : null
+    if (date) return date
+  }
+  for (const label of labels) {
+    const date = findDateAfterLabel(html, label)
+    if (date) return date
+  }
+  return null
 }
 
 export function parseAdjudicationDetail(html: string): AdjudicationDetail {
@@ -381,12 +467,7 @@ export function parseAdjudicationDetail(html: string): AdjudicationDetail {
   return {
     resolution,
     organismo: extractOrganismo(html),
-    // Adjudications label the date "Fecha de Compra"; some show "Fecha
-    // Resolución" instead, so both are tried.
-    purchaseDate:
-      findDateAfterLabel(html, 'Fecha de Compra') ??
-      findDateAfterLabel(html, 'Fecha Resolución') ??
-      findDateAfterLabel(html, 'Fecha de la compra'),
+    purchaseDate: extractPurchaseDate(html),
     totalAmount,
     currency,
     participants: extractParticipants(html),
