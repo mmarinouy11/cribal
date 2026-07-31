@@ -2,13 +2,5 @@
   "$schema": "https://schema.railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS"
-  },
-  "deploy": {
-    "cronJobs": [
-      {
-        "schedule": "0 11 * * 1-5",
-        "command": "curl -s -X POST https://cribal-production.up.railway.app/api/runs -H \"Authorization: Bearer $CRON_SECRET\" -H \"Content-Type: application/json\""
-      }
-    ]
   }
 }
