@@ -20,6 +20,7 @@ import {
   FailureTypeTag,
   RecallTag,
   SIGNAL_META,
+  labelBuiltFromObject,
 } from '@/components/niche/niche-badges'
 import { formatRelativeTime } from '@/lib/format'
 
@@ -212,7 +213,10 @@ export default async function NichesPage({
                 </div>
 
                 <h2 className="mt-3 font-semibold text-[#0c1e3c]">{niche.label}</h2>
-                {niche.objectDescription && (
+                {/* The label already embeds the (truncated) object description when
+                    one exists, so only show a separate line when the label fell
+                    back to the item name or feed title. */}
+                {!labelBuiltFromObject(niche) && niche.objectDescription && (
                   <p className="mt-1 text-sm text-[#334155]">{niche.objectDescription}</p>
                 )}
                 <p className="mt-1 text-sm text-[#6b7280]">
