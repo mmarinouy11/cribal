@@ -11,6 +11,7 @@
     "seed:user": "ts-node src/lib/seed-user.ts",
     "pipeline": "ts-node -e \"require('./src/lib/pipeline').runPipelineAllCompanies()\"",
     "backfill:failed-tenders": "ts-node src/lib/scripts/backfill-failed-tenders.ts",
+    "recompute:niches": "ts-node src/lib/scripts/recompute-niches.ts",
     "scheduler": "ts-node src/app/api/scheduler.ts",
     "postinstall": "prisma generate"
   },

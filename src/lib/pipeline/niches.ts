@@ -95,76 +95,117 @@ export async function recomputeNiches(companyId: string): Promise<number> {
     }
   }
 
-  // 2. Upsert each group into a Niche.
-  let touched = 0
-  for (const group of groups.values()) {
-    const failuresInGroup = group.failures
-    const desiertaCount = failuresInGroup.filter((f) => f.failureType === 'DESIERTA').length
-    const rechazadaCount = failuresInGroup.filter(
-      (f) => f.failureType === 'OFERTAS_RECHAZADAS'
-    ).length
-    const failureCount = failuresInGroup.length
+  // 2. Upsert groups, relink failures and prune orphans in a single transaction
+  // so the UI never reads a half-updated state (e.g. the same failure showing up
+  // under both its old and its new niche).
+  const { touched, deleted, archived } = await prisma.$transaction(
+    async (tx) => {
+      const keptNicheIds: string[] = []
+      let touchedCount = 0
 
-    const dates = failuresInGroup
-      .map((f) => f.publicationDate ?? f.detectedAt)
-      .sort((a, b) => a.getTime() - b.getTime())
-    const firstFailureAt = dates[0]
-    const lastFailureAt = dates[dates.length - 1]
+      for (const group of groups.values()) {
+        const failuresInGroup = group.failures
+        const desiertaCount = failuresInGroup.filter((f) => f.failureType === 'DESIERTA').length
+        const rechazadaCount = failuresInGroup.filter(
+          (f) => f.failureType === 'OFERTAS_RECHAZADAS'
+        ).length
+        const failureCount = failuresInGroup.length
 
-    const topFailure = [...failuresInGroup].sort((a, b) => b.fitScore - a.fitScore)[0]
-    const fitScore = topFailure.fitScore
-    const missingCapability = topFailure.missingCapability
+        const dates = failuresInGroup
+          .map((f) => f.publicationDate ?? f.detectedAt)
+          .sort((a, b) => a.getTime() - b.getTime())
+        const firstFailureAt = dates[0]
+        const lastFailureAt = dates[dates.length - 1]
 
-    const category = failuresInGroup
-      .map((f) => f.nicheCategory)
-      .reduce<NicheCategory>((acc, c) => mostFavorable(acc, c), 'FUERA')
+        const topFailure = [...failuresInGroup].sort((a, b) => b.fitScore - a.fitScore)[0]
+        const fitScore = topFailure.fitScore
+        const missingCapability = topFailure.missingCapability
 
-    const label = buildLabel(topFailure, group.organismo)
-    const signalStrength = computeSignalStrength(failureCount, lastFailureAt)
+        const category = failuresInGroup
+          .map((f) => f.nicheCategory)
+          .reduce<NicheCategory>((acc, c) => mostFavorable(acc, c), 'FUERA')
 
-    const data = {
-      organismo: group.organismo,
-      articleCode: group.articleCode,
-      label,
-      objectDescription: topFailure.objectDescription,
-      category,
-      fitScore,
-      missingCapability,
-      failureCount,
-      desiertaCount,
-      rechazadaCount,
-      firstFailureAt,
-      lastFailureAt,
-      signalStrength,
-    }
+        const label = buildLabel(topFailure, group.organismo)
+        const signalStrength = computeSignalStrength(failureCount, lastFailureAt)
 
-    // Find the existing niche, keyed on the schema's unique (companyId,
-    // organismo, articleCode). No-code failures collapse into a single
-    // articleCode=null niche per organismo, which keeps lookups stable across
-    // runs (a label-based key would drift as failures accumulate).
-    const existing = await prisma.niche.findFirst({
-      where: { companyId, organismo: group.organismo, articleCode: group.articleCode },
-    })
+        const data = {
+          organismo: group.organismo,
+          articleCode: group.articleCode,
+          label,
+          objectDescription: topFailure.objectDescription,
+          category,
+          fitScore,
+          missingCapability,
+          failureCount,
+          desiertaCount,
+          rechazadaCount,
+          firstFailureAt,
+          lastFailureAt,
+          signalStrength,
+        }
 
-    const niche = existing
-      ? await prisma.niche.update({ where: { id: existing.id }, data })
-      : await prisma.niche.create({ data: { ...data, companyId } })
+        // Find the existing niche, keyed on the schema's unique (companyId,
+        // organismo, articleCode). No-code failures collapse into a single
+        // articleCode=null niche per organismo, which keeps lookups stable across
+        // runs (a label-based key would drift as failures accumulate).
+        const existing = await tx.niche.findFirst({
+          where: { companyId, organismo: group.organismo, articleCode: group.articleCode },
+        })
 
-    // 3. Link this group's failures to the niche.
-    await prisma.failedTender.updateMany({
-      where: { id: { in: failuresInGroup.map((f) => f.id) } },
-      data: { nicheId: niche.id },
-    })
+        const niche = existing
+          ? await tx.niche.update({ where: { id: existing.id }, data })
+          : await tx.niche.create({ data: { ...data, companyId } })
 
-    touched++
-  }
+        // 3. Link this group's failures to the niche.
+        await tx.failedTender.updateMany({
+          where: { id: { in: failuresInGroup.map((f) => f.id) } },
+          data: { nicheId: niche.id },
+        })
 
-  // Unlink FUERA failures from any niche they might still point to.
-  await prisma.failedTender.updateMany({
-    where: { companyId, nicheCategory: 'FUERA', nicheId: { not: null } },
-    data: { nicheId: null },
-  })
+        keptNicheIds.push(niche.id)
+        touchedCount++
+      }
 
-  console.log(`[CRIBAL][NICHOS] ${touched} nicho(s) recomputados para ${companyId}`)
+      // Unlink FUERA failures from any niche they might still point to.
+      await tx.failedTender.updateMany({
+        where: { companyId, nicheCategory: 'FUERA', nicheId: { not: null } },
+        data: { nicheId: null },
+      })
+
+      // 4. Prune orphans: niches not touched this run whose failures all moved
+      // elsewhere (e.g. an old articleCode=null niche superseded once the backfill
+      // added a real code). Untouched ones are hard-deleted; ones the user
+      // invested in (non-NUEVO status, notes or an AI analysis) are archived
+      // instead so nothing is lost.
+      const orphans = await tx.niche.findMany({
+        where: { companyId, id: { notIn: keptNicheIds } },
+        include: { _count: { select: { failures: true } } },
+      })
+
+      let deletedCount = 0
+      let archivedCount = 0
+      for (const orphan of orphans) {
+        if (orphan._count.failures > 0) continue // Still has failures — leave it.
+        const userInvested =
+          orphan.status !== 'NUEVO' || Boolean(orphan.notes) || Boolean(orphan.aiAnalysis)
+        if (userInvested) {
+          if (orphan.status !== 'ARCHIVADO') {
+            await tx.niche.update({ where: { id: orphan.id }, data: { status: 'ARCHIVADO' } })
+          }
+          archivedCount++
+        } else {
+          await tx.niche.delete({ where: { id: orphan.id } })
+          deletedCount++
+        }
+      }
+
+      return { touched: touchedCount, deleted: deletedCount, archived: archivedCount }
+    },
+    { timeout: 60000 }
+  )
+
+  console.log(
+    `[CRIBAL][NICHOS] ${touched} nicho(s) recomputados para ${companyId} — ${deleted} eliminado(s), ${archived} archivado(s)`
+  )
   return touched
 }
