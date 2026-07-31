@@ -48,6 +48,7 @@ export interface AdjudicatedItem {
 
 export interface AdjudicationDetail {
   resolution: string | null // "Adjudicada totalmente" / "Adjudicada parcialmente"
+  organismo: string | null // buying entity read from the page, e.g. "Unidad ejecutora"
   purchaseDate: Date | null
   totalAmount: number | null // parsed from "$ 644.160,00"
   currency: string // "UYU" or "USD"
@@ -227,6 +228,35 @@ export function isAdjudication(html: string): boolean {
   return /adjudicad[oa]/i.test(text) || /[íi]tems?\s+adjudicados/i.test(text)
 }
 
+/**
+ * Read the buying entity from an adjudication page. ARCE labels it as "Unidad
+ * ejecutora" (sometimes "Unidad de Compra" / "Inciso" / "Organismo"). Best-effort
+ * and defensive: returns null when no label is found so callers never rely on the
+ * RSS title for the organismo.
+ */
+function extractOrganismo(html: string): string | null {
+  const text = stripTags(html)
+  const labels = [
+    'Unidad ejecutora',
+    'Unidad Ejecutora',
+    'Unidad de Compra',
+    'Unidad Compradora',
+    'Inciso',
+    'Organismo',
+  ]
+  for (const label of labels) {
+    const idx = text.toLowerCase().indexOf(label.toLowerCase())
+    if (idx === -1) continue
+    const scope = text.slice(idx + label.length, idx + label.length + 120)
+    const cleaned = scope
+      .replace(/^[\s:.\-–—]+/, '')
+      .split(/\s{2,}|\||·|;/)[0]
+      .trim()
+    if (cleaned.length >= 3) return cleaned.slice(0, 100)
+  }
+  return null
+}
+
 function extractParticipants(html: string): Participant[] {
   const participants: Participant[] = []
   // Locate the "Proveedores participantes" table and read its rows.
@@ -315,6 +345,7 @@ export function parseAdjudicationDetail(html: string): AdjudicationDetail {
 
   return {
     resolution,
+    organismo: extractOrganismo(html),
     purchaseDate: findDateAfterLabel(html, 'Fecha de la compra') ?? findDateAfterLabel(html, 'Fecha'),
     totalAmount,
     currency,
