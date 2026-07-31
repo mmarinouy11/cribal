@@ -12,6 +12,7 @@
     "pipeline": "ts-node -e \"require('./src/lib/pipeline').runPipelineAllCompanies()\"",
     "backfill:failed-tenders": "ts-node src/lib/scripts/backfill-failed-tenders.ts",
     "recompute:niches": "ts-node src/lib/scripts/recompute-niches.ts",
+    "delete:company": "ts-node src/lib/scripts/delete-company.ts",
     "scheduler": "ts-node src/app/api/scheduler.ts",
     "postinstall": "prisma generate"
   },

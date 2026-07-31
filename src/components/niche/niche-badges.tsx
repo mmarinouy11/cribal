@@ -1,6 +1,17 @@
 import { NicheCategory, NicheStatus, SignalStrength, FailureType } from '@prisma/client'
 import { cn } from '@/lib/cn'
 
+/**
+ * Whether a niche's label was built from its object description. Mirrors
+ * `buildLabel` in `pipeline/niches.ts`, which uses the object description first
+ * (so the label already contains it, truncated) and only falls back to the item
+ * name / feed title when there is none. UI uses this to avoid showing the
+ * description twice.
+ */
+export function labelBuiltFromObject(niche: { objectDescription: string | null }): boolean {
+  return Boolean(niche.objectDescription?.trim())
+}
+
 // ---------------------------------------------------------------------------
 // Signal strength
 // ---------------------------------------------------------------------------
