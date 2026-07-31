@@ -8,7 +8,10 @@ import { parseAdjudicationDetail, type TenderItem } from './arce-parser'
 const RSS_BASE = 'https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ADJ'
 const DETAIL_BASE = 'https://www.comprasestatales.gub.uy/consultas/detalle/id'
 const MODEL = 'claude-sonnet-4-6'
-const MAX_DETAILS = 10
+// The article-code feed now returns a small, precisely-filtered set (tens of
+// items), so we fetch the full set for a meaningful price sample and only cap
+// detail-page fetches to bound runtime.
+const MAX_DETAILS = 25
 const USER_AGENT = 'Mozilla/5.0 (compatible; Cribal/1.0)'
 
 export interface AdjudicationRecord {
@@ -158,8 +161,15 @@ async function collectAdjudicationUrls(
 ): Promise<CollectResult> {
   const parser = new Parser({ headers: { 'User-Agent': USER_AGENT }, timeout: 30000 })
 
+  // The `/articulo/{code}` parameter is silently ignored by ARCE — that feed
+  // returns the 1000 most recent adjudications across all sectors. The pattern
+  // below (verified against ARCE's own search UI) actually filters by article
+  // code: e.g. cod-articulo/13175 returns only software-maintenance results.
   const articleFeeds = articleCodes.map(
-    (code) => `${RSS_BASE}/articulo/${encodeURIComponent(code)}`
+    (code) =>
+      `${RSS_BASE}/tipo-doc/C/tipo-fecha/PUB/filtro-cat/CAT/cod-articulo/${encodeURIComponent(
+        code
+      )}/tipo-orden/DESC`
   )
   let leads = await readFeeds(parser, articleFeeds)
   let usedKeywordFallback = false
@@ -265,16 +275,28 @@ function buildPriceIntelligence(
   articleCodes: string[]
 ): PriceIntelligence {
   const codeSet = new Set(articleCodes)
-  const prices: number[] = []
-  let currency = 'UYU'
 
+  // Collect matching unit prices grouped by currency. Averaging UYU, USD and EUR
+  // together would be meaningless, so we build the statistics from a single
+  // currency — the one with the largest sample.
+  const byCurrency = new Map<string, number[]>()
   for (const adj of adjudications) {
     for (const item of adj.detail.adjudicatedItems) {
       const matches = codeSet.size === 0 || (item.articleCode && codeSet.has(item.articleCode))
       if (matches && item.unitPriceNoTax !== null) {
-        prices.push(item.unitPriceNoTax)
-        currency = item.currency
+        const bucket = byCurrency.get(item.currency) ?? []
+        bucket.push(item.unitPriceNoTax)
+        byCurrency.set(item.currency, bucket)
       }
+    }
+  }
+
+  let currency = 'UYU'
+  let prices: number[] = []
+  for (const [cur, values] of byCurrency) {
+    if (values.length > prices.length) {
+      currency = cur
+      prices = values
     }
   }
 

@@ -84,10 +84,31 @@ function stripTags(html: string): string {
     .trim()
 }
 
-/** Detect the currency mentioned in a fragment. Defaults to UYU. */
+/**
+ * Detect the currency of an amount from its prefix. ARCE prints "$" for pesos,
+ * "U$S" for dollars and "€"/"EUR" for euros. Mixing currencies would corrupt the
+ * price statistics downstream, so we always read the prefix rather than assume
+ * pesos. "U$S" contains "$", so dollars/euros are tested before the UYU default.
+ */
 function detectCurrency(text: string): string {
-  if (/U\$S|USD|d[óo]lar/i.test(text)) return 'USD'
+  if (/U\$S|US\$|USD|d[óo]lar/i.test(text)) return 'USD'
+  if (/€|EUR|euro/i.test(text)) return 'EUR'
   return 'UYU'
+}
+
+/**
+ * Read a value from ARCE's "<li>Label:</li><li><strong>VALUE</strong></li>"
+ * layout. Tolerant of attributes, whitespace and a missing <strong>. Returns the
+ * raw text (e.g. "$ 88.000,00", "22/05/2026") or null.
+ */
+function extractLabeledValue(html: string, label: string): string | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(
+    `${escaped}\\s*:?\\s*<\\/li>\\s*<li[^>]*>\\s*(?:<strong[^>]*>\\s*)?([^<]+)`,
+    'i'
+  )
+  const match = html.match(re)
+  return match ? decodeEntities(match[1]).trim() : null
 }
 
 /**
@@ -229,32 +250,20 @@ export function isAdjudication(html: string): boolean {
 }
 
 /**
- * Read the buying entity from an adjudication page. ARCE labels it as "Unidad
- * ejecutora" (sometimes "Unidad de Compra" / "Inciso" / "Organismo"). Best-effort
- * and defensive: returns null when no label is found so callers never rely on the
- * RSS title for the organismo.
+ * Read the buying entity from an adjudication page. ARCE renders it inside the
+ * page heading as `<h2>… <span class="small">ORGANISMO</span></h2>`. Best-effort
+ * and defensive: returns null when the span is absent so callers can fall back to
+ * the feed title instead of picking up page-footer text.
  */
 function extractOrganismo(html: string): string | null {
-  const text = stripTags(html)
-  const labels = [
-    'Unidad ejecutora',
-    'Unidad Ejecutora',
-    'Unidad de Compra',
-    'Unidad Compradora',
-    'Inciso',
-    'Organismo',
-  ]
-  for (const label of labels) {
-    const idx = text.toLowerCase().indexOf(label.toLowerCase())
-    if (idx === -1) continue
-    const scope = text.slice(idx + label.length, idx + label.length + 120)
-    const cleaned = scope
-      .replace(/^[\s:.\-–—]+/, '')
-      .split(/\s{2,}|\||·|;/)[0]
-      .trim()
-    if (cleaned.length >= 3) return cleaned.slice(0, 100)
-  }
-  return null
+  const h2Match = html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i)
+  if (!h2Match) return null
+  const spanMatch = h2Match[1].match(
+    /<span[^>]*class="[^"]*\bsmall\b[^"]*"[^>]*>([\s\S]*?)<\/span>/i
+  )
+  if (!spanMatch) return null
+  const value = stripTags(spanMatch[1])
+  return value.length >= 3 ? value.slice(0, 100) : null
 }
 
 function extractParticipants(html: string): Participant[] {
@@ -286,37 +295,63 @@ function extractParticipants(html: string): Participant[] {
   return participants
 }
 
-function extractAdjudicatedItems(html: string, currency: string): AdjudicatedItem[] {
+/** Read the provider name from `<h4 class="provider-name">Proveedor: <strong>NAME</strong></h4>`. */
+function extractProviderName(block: string): string {
+  const h4 = block.match(/<h4[^>]*class="[^"]*provider-name[^"]*"[^>]*>([\s\S]*?)<\/h4>/i)
+  if (!h4) return ''
+  const strong = h4[1].match(/<strong[^>]*>([\s\S]*?)<\/strong>/i)
+  const raw = strong ? strong[1] : h4[1].replace(/proveedor\s*:?/i, '')
+  return stripTags(raw)
+}
+
+function extractAdjudicatedItems(html: string, pageCurrency: string): AdjudicatedItem[] {
   const items: AdjudicatedItem[] = []
-  const blockRegex = /<div[^>]*class="[^"]*\bitem\b[^"]*"[^>]*>([\s\S]*?)<\/div>/gi
+
+  // Each adjudicated item is introduced by a heading carrying its article code
+  // ("… (Cód. Artículo 13175)"). Anchor per-item blocks on those headings so the
+  // article code stays aligned with the provider and price that follow it.
+  const headingRegex = /<(h[1-6])[^>]*>([\s\S]*?)<\/\1>/gi
+  const headings: { index: number; text: string; code: string }[] = []
   let match: RegExpExecArray | null
-  let counter = 0
+  while ((match = headingRegex.exec(html)) !== null) {
+    const text = stripTags(match[2])
+    const codeMatch = text.match(/C[óo]d\.?\s*Art[íi]culo\s*(\d+)/i)
+    if (codeMatch) headings.push({ index: match.index, text, code: codeMatch[1] })
+  }
 
-  while ((match = blockRegex.exec(html)) !== null) {
-    const block = match[1]
-    const providerMatch = block.match(
-      /<h4[^>]*class="[^"]*provider-name[^"]*"[^>]*>([\s\S]*?)<\/h4>/i
-    )
-    if (!providerMatch) continue
+  for (let i = 0; i < headings.length; i++) {
+    const heading = headings[i]
+    const end = i + 1 < headings.length ? headings[i + 1].index : html.length
+    const block = html.slice(heading.index, end)
 
-    counter += 1
-    const providerName = stripTags(providerMatch[1])
+    const providerName = extractProviderName(block)
     const blockText = stripTags(block)
-    const codeMatch = blockText.match(/C[óo]d\.?\s*Art[íi]culo\s*(\d+)/i)
     const rutMatch = blockText.match(/RUT\s*(\d{6,})/i)
-    const amounts = Array.from(blockText.matchAll(/\$\s*[\d.]+,\d{2}/g)).map((m) =>
-      parseUruguayanAmount(m[0])
-    )
+
+    const unitRaw = extractLabeledValue(block, 'Precio unitario sin impuestos')
+    const totalRaw =
+      extractLabeledValue(block, 'Precio total con impuestos') ??
+      extractLabeledValue(block, 'Precio total')
+
+    // Currency comes from the amount's own prefix so mixed-currency pages don't
+    // corrupt the statistics; fall back to the page currency only when neither
+    // amount is present.
+    const currency = unitRaw || totalRaw ? detectCurrency(unitRaw ?? totalRaw ?? '') : pageCurrency
+
+    const name = heading.text
+      .split(/\(?\s*C[óo]d\.?\s*Art[íi]culo/i)[0]
+      .replace(/[-–—:]\s*$/, '')
+      .trim()
 
     items.push({
-      itemNumber: counter,
-      name: blockText.split(/\(?\s*C[óo]d/i)[0].slice(0, 120).trim(),
-      articleCode: codeMatch ? codeMatch[1] : null,
+      itemNumber: i + 1,
+      name: name || `Ítem ${i + 1}`,
+      articleCode: heading.code,
       providerName,
       providerRut: rutMatch ? rutMatch[1] : null,
       quantity: null,
-      unitPriceNoTax: amounts[0] ?? null,
-      totalWithTax: amounts.length > 1 ? amounts[amounts.length - 1] : null,
+      unitPriceNoTax: unitRaw ? parseUruguayanAmount(unitRaw) : null,
+      totalWithTax: totalRaw ? parseUruguayanAmount(totalRaw) : null,
       currency,
     })
   }
@@ -326,15 +361,15 @@ function extractAdjudicatedItems(html: string, currency: string): AdjudicatedIte
 
 export function parseAdjudicationDetail(html: string): AdjudicationDetail {
   const text = stripTags(html)
-  const currency = detectCurrency(text)
 
   const resolutionMatch = text.match(/Adjudicada\s+(totalmente|parcialmente)/i)
   const resolution = resolutionMatch ? `Adjudicada ${resolutionMatch[1].toLowerCase()}` : null
 
-  // Total amount: prefer a value near "total".
-  const totalIdx = text.toLowerCase().indexOf('total')
-  const totalScope = totalIdx !== -1 ? text.slice(totalIdx, totalIdx + 80) : text
-  const totalAmount = parseUruguayanAmount(totalScope)
+  // Total amount is labelled "Monto Total de la Compra:". Read the currency from
+  // its own prefix; only fall back to a whole-page scan when the label is absent.
+  const totalRaw = extractLabeledValue(html, 'Monto Total de la Compra')
+  const totalAmount = totalRaw ? parseUruguayanAmount(totalRaw) : parseUruguayanAmount(text)
+  const currency = totalRaw ? detectCurrency(totalRaw) : detectCurrency(text)
 
   const actaMatch = html.match(/href="([^"]*\.pdf)"[^>]*>[^<]*acta/i)
   const actaUrl = actaMatch
@@ -346,7 +381,12 @@ export function parseAdjudicationDetail(html: string): AdjudicationDetail {
   return {
     resolution,
     organismo: extractOrganismo(html),
-    purchaseDate: findDateAfterLabel(html, 'Fecha de la compra') ?? findDateAfterLabel(html, 'Fecha'),
+    // Adjudications label the date "Fecha de Compra"; some show "Fecha
+    // Resolución" instead, so both are tried.
+    purchaseDate:
+      findDateAfterLabel(html, 'Fecha de Compra') ??
+      findDateAfterLabel(html, 'Fecha Resolución') ??
+      findDateAfterLabel(html, 'Fecha de la compra'),
     totalAmount,
     currency,
     participants: extractParticipants(html),
