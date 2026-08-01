@@ -361,7 +361,10 @@ export async function runPipelineAllCompanies(
   triggeredBy: 'cron' | 'manual' = 'manual'
 ): Promise<void> {
   const prefix = triggeredBy === 'cron' ? '[CRIBAL][CRON]' : '[CRIBAL]'
-  const companies = await prisma.companyConfig.findMany({ where: { isActive: true } })
+  const companies = await prisma.companyConfig.findMany({
+    where: { isActive: true },
+    include: { _count: { select: { users: true } } },
+  })
 
   console.log(`${prefix} Iniciando pipeline para ${companies.length} empresas activas...`)
 
@@ -370,6 +373,14 @@ export async function runPipelineAllCompanies(
   let skipped = 0
 
   for (const company of companies) {
+    // Never spend API credits on an ownerless company (e.g. an orphan left by a
+    // failed registration).
+    if (company._count.users === 0) {
+      console.log(`[CRIBAL] Omitiendo ${company.companyName} — sin usuarios asociados`)
+      skipped++
+      continue
+    }
+
     if (!isDueToRun(company.lastSuccessfulRunAt, company.lookbackDays, now)) {
       const days = daysUntilNextRun(company.lastSuccessfulRunAt, company.lookbackDays, now)
       console.log(
