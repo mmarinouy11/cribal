@@ -170,8 +170,12 @@ model Opportunity {
   priceIntelligence       Json?         // Price ranges from historical data
   marketSummary           String?       // Claude-generated market summary
 
+  // Pliego chat: cached extracted PDF text (lazily populated on first chat use)
+  pliegoText              String?       @db.Text
+
   proposals               Proposal[]
   marketAnalyses          MarketAnalysis[]
+  pliegoChat              PliegoChat?
 
   @@unique([companyId, opportunityId])
   @@map("opportunities")
@@ -231,6 +235,39 @@ enum OpportunityStatus {
   CONTACTADA
   NO_FIT
   ARCHIVADA
+}
+
+// Conversational chat scoped to one opportunity (and company): "Consultar pliego".
+model PliegoChat {
+  id            String        @id @default(uuid())
+  opportunityId String        @unique
+  opportunity   Opportunity   @relation(fields: [opportunityId], references: [id])
+  companyId     String
+
+  messages      ChatMessage[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([opportunityId, companyId])
+  @@map("pliego_chats")
+}
+
+model ChatMessage {
+  id        String      @id @default(uuid())
+  chatId    String
+  chat      PliegoChat  @relation(fields: [chatId], references: [id])
+
+  role      MessageRole
+  content   String      @db.Text
+  createdAt DateTime    @default(now())
+
+  @@map("chat_messages")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
 }
 
 model RawPublication {
