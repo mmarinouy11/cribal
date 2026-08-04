@@ -1,5 +1,3 @@
-import { PDFParse } from 'pdf-parse'
-
 const ARCE_BASE = 'https://www.comprasestatales.gub.uy'
 const USER_AGENT = 'Mozilla/5.0 (compatible; Cribal/1.0)'
 const MAX_CHARS = 80_000
@@ -29,18 +27,19 @@ export async function extractPliegoText(pliegoUrl: string): Promise<string | nul
       return null
     }
 
-    const data = new Uint8Array(await response.arrayBuffer())
-    const parser = new PDFParse({ data })
-    try {
-      const result = await parser.getText()
-      let text = (result.text ?? '').trim()
-      if (!text) return null
-      if (text.length > MAX_CHARS) text = text.slice(0, MAX_CHARS)
-      console.log(`[CRIBAL][PLIEGO] Extraído: ${text.length} caracteres de ${url}`)
-      return text
-    } finally {
-      await parser.destroy()
-    }
+    const buffer = Buffer.from(await response.arrayBuffer())
+
+    // Dynamic import inside the function so Next never loads pdf-parse during the
+    // build's page-data collection (its pdfjs dependency touches browser-only
+    // APIs). We import the harness-free entry to skip pdf-parse's debug block.
+    const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default
+    const result = await pdfParse(buffer)
+
+    let text = (result.text ?? '').trim()
+    if (!text) return null
+    if (text.length > MAX_CHARS) text = text.slice(0, MAX_CHARS)
+    console.log(`[CRIBAL][PLIEGO] Extraído: ${text.length} caracteres de ${url}`)
+    return text
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     console.warn(`[CRIBAL][PLIEGO] Error extrayendo ${url}: ${message}`)
