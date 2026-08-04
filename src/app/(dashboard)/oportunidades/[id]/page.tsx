@@ -12,6 +12,7 @@ import { ProposalGenerator } from '@/components/proposal/proposal-generator'
 import { DetailTabs, type DetailTab } from '@/components/opportunity/detail-tabs'
 import { EnrichButton } from '@/components/opportunity/enrich-button'
 import { MarketPanel, type MarketAnalysisView } from '@/components/opportunity/market-panel'
+import { PliegoChat } from '@/components/opportunity/pliego-chat'
 import { scoreColorClass } from '@/components/ui/score-badge'
 import { getBusinessDaysUntilClosing, getUrgencyLevel } from '@/lib/urgency-utils'
 import { formatDateDMY, formatDateTime } from '@/lib/format'
@@ -83,9 +84,11 @@ export default async function OpportunityDetailPage({
 
   const tabParam = firstValue(searchParams.tab)
   const tab: DetailTab =
-    tabParam === 'mercado' || tabParam === 'propuesta' ? tabParam : 'detalle'
+    tabParam === 'mercado' || tabParam === 'propuesta' || tabParam === 'chat'
+      ? tabParam
+      : 'detalle'
 
-  const [proposalRow, marketRow] = await Promise.all([
+  const [proposalRow, marketRow, chatRow] = await Promise.all([
     prisma.proposal.findFirst({
       where: { opportunityId: opportunity.id, companyId: opportunity.companyId },
       orderBy: { updatedAt: 'desc' },
@@ -94,7 +97,18 @@ export default async function OpportunityDetailPage({
       where: { opportunityId: opportunity.id, companyId: opportunity.companyId },
       orderBy: { analyzedAt: 'desc' },
     }),
+    prisma.pliegoChat.findUnique({
+      where: {
+        opportunityId_companyId: {
+          opportunityId: opportunity.id,
+          companyId: opportunity.companyId,
+        },
+      },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
+    }),
   ])
+
+  const chatMessages = chatRow?.messages ?? []
 
   const savedProposal: ProposalData | null = proposalRow
     ? {
@@ -139,7 +153,7 @@ export default async function OpportunityDetailPage({
         ← Volver a oportunidades
       </Link>
 
-      <DetailTabs opportunityId={opportunity.id} active={tab} />
+      <DetailTabs opportunityId={opportunity.id} active={tab} chatCount={chatMessages.length} />
 
       {tab === 'detalle' && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -387,6 +401,16 @@ export default async function OpportunityDetailPage({
           opportunityId={opportunity.id}
           status={opportunity.status}
           analysis={marketAnalysis}
+        />
+      )}
+
+      {tab === 'chat' && (
+        <PliegoChat
+          opportunityId={opportunity.id}
+          initialMessages={chatMessages}
+          hasPliego={Boolean(opportunity.pliegoUrl)}
+          pliegoUrl={opportunity.pliegoUrl}
+          hasArticleCodes={items.some((item) => Boolean(item.articleCode))}
         />
       )}
 
