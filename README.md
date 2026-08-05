@@ -173,20 +173,16 @@ regulares quedan siempre acotados a su empresa.
 
 1. **Servicio Next.js** — conectado al repo de GitHub, auto-deploy en cada push.
 2. **PostgreSQL** — `DATABASE_URL` se inyecta automáticamente por Railway.
-3. **Cron job** — se configura como un **servicio de cron separado en Railway**
-   (Settings → Cron Schedule), NO en `railway.json` (Railway no soporta cron en
-   ese archivo; cualquier bloque `cronJobs` ahí se ignora en silencio). El
-   servicio corre con schedule `0 11 * * 1-5` (UTC; 08:00 Montevideo) y como
-   comando un curl que dispara el endpoint:
+3. **Cron del pipeline** — corre **dentro del proceso Next.js** vía
+   `instrumentation.ts` → `src/lib/pipeline-cron.ts` (node-cron), con schedule
+   `0 11 * * 1-5` (UTC; 08:00 Montevideo). No requiere ningún servicio de cron
+   externo ni `$CRON_SECRET` (que no expande en el start command de la imagen
+   Docker). El endpoint `POST /api/runs` con `Authorization: Bearer $CRON_SECRET`
+   sigue disponible para disparos manuales.
 
-   ```
-   curl -s -X POST "$APP_URL/api/runs" \
-     -H "Authorization: Bearer $CRON_SECRET" \
-     -H "Content-Type: application/json"
-   ```
-
-   El endpoint valida el token y corre el pipeline de todas las empresas activas.
-   No depende de ninguna máquina local.
+   > Cribal corre en una sola réplica de Railway, así que no hay riesgo de doble
+   > ejecución. Si se escala a varias réplicas, agregar un lock en DB o un chequeo
+   > de `lastSuccessfulRunAt` para evitar corridas duplicadas.
 
 Variables de entorno a configurar en el dashboard de Railway:
 
