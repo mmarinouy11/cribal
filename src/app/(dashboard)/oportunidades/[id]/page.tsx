@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
-import type { Prisma } from '@prisma/client'
+import type { OpportunityStatus, Prisma } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
 import { Card, CardBody } from '@/components/ui/card'
@@ -8,6 +8,7 @@ import { CategoryBadge } from '@/components/ui/category-badge'
 import { Badge } from '@/components/ui/badge'
 import { buttonClass } from '@/components/ui/button-styles'
 import { OpportunityActions } from '@/components/opportunity/opportunity-actions'
+import { LicitacionTimeline } from '@/components/opportunity/licitacion-timeline'
 import { ProposalGenerator } from '@/components/proposal/proposal-generator'
 import { DetailTabs, type DetailTab } from '@/components/opportunity/detail-tabs'
 import { EnrichButton } from '@/components/opportunity/enrich-button'
@@ -134,6 +135,10 @@ export default async function OpportunityDetailPage({
   const scoreWidth = `${Math.max(0, Math.min(10, opportunity.score)) * 10}%`
   const closingHasPassed =
     opportunity.closingDate !== null && opportunity.closingDate.getTime() < Date.now()
+  // The visual timeline is only shown while the opportunity is being worked.
+  const showTimeline = (['REVISANDO', 'RELEVANTE', 'OFERTADA'] as OpportunityStatus[]).includes(
+    opportunity.status
+  )
 
   const items = tenderItemsFromJson(opportunity.tenderItems)
   const businessDays = opportunity.closingDate
@@ -205,40 +210,65 @@ export default async function OpportunityDetailPage({
               </CardBody>
             </Card>
 
-            {/* Enriched key dates */}
-            {opportunity.enrichedAt && (
+            {/* Key dates — visual timeline while the opportunity is being worked,
+                compact list otherwise. */}
+            {showTimeline ? (
               <Card>
                 <CardBody>
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="font-semibold text-[#0c1e3c]">📅 Fechas clave</h3>
-                    {urgencyBadge && (
-                      <Badge className={urgencyBadge.className}>{urgencyBadge.label}</Badge>
-                    )}
-                  </div>
-                  <DateRow
-                    label="Recepción de ofertas"
-                    value={
-                      opportunity.closingDate
-                        ? `${formatDateTime(opportunity.closingDate)}${
-                            businessDays !== null ? ` · ${businessDays} día(s) hábil(es)` : ''
-                          }`
-                        : '—'
-                    }
-                  />
-                  <DateRow label="Acto de apertura" value={formatDateTime(opportunity.openingDate)} />
-                  <DateRow label="Prórrogas hasta" value={formatDateTime(opportunity.prorrogasDate)} />
-                  <DateRow
-                    label="Aclaraciones hasta"
-                    value={formatDateTime(opportunity.clarificationsDate)}
-                  />
-                  {opportunity.isElectronic !== null && (
-                    <DateRow
-                      label="Apertura electrónica"
-                      value={opportunity.isElectronic ? 'Sí' : 'No'}
+                  <h3 className="mb-4 font-semibold text-[#0c1e3c]">Línea de tiempo</h3>
+                  {opportunity.enrichedAt ? (
+                    <LicitacionTimeline
+                      publicationDate={opportunity.publicationDate}
+                      clarificationsDate={opportunity.clarificationsDate}
+                      prorrogasDate={opportunity.prorrogasDate}
+                      closingDate={opportunity.closingDate}
+                      openingDate={opportunity.openingDate}
                     />
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <p className="text-sm text-[#6b7280]">
+                        Datos del llamado no disponibles aún.
+                      </p>
+                      <EnrichButton opportunityId={opportunity.id} />
+                    </div>
                   )}
                 </CardBody>
               </Card>
+            ) : (
+              opportunity.enrichedAt && (
+                <Card>
+                  <CardBody>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="font-semibold text-[#0c1e3c]">Fechas clave</h3>
+                      {urgencyBadge && (
+                        <Badge className={urgencyBadge.className}>{urgencyBadge.label}</Badge>
+                      )}
+                    </div>
+                    <DateRow
+                      label="Recepción de ofertas"
+                      value={
+                        opportunity.closingDate
+                          ? `${formatDateTime(opportunity.closingDate)}${
+                              businessDays !== null ? ` · ${businessDays} día(s) hábil(es)` : ''
+                            }`
+                          : '—'
+                      }
+                    />
+                    <DateRow label="Acto de apertura" value={formatDateTime(opportunity.openingDate)} />
+                    <DateRow label="Prórrogas hasta" value={formatDateTime(opportunity.prorrogasDate)} />
+                    <DateRow
+                      label="Aclaraciones hasta"
+                      value={formatDateTime(opportunity.clarificationsDate)}
+                    />
+                    {opportunity.isElectronic !== null && (
+                      <DateRow
+                        label="Apertura electrónica"
+                        value={opportunity.isElectronic ? 'Sí' : 'No'}
+                      />
+                    )}
+                  </CardBody>
+                </Card>
+              )
             )}
 
             {/* Tender items */}
