@@ -7,6 +7,7 @@ import {
   isAdjudication,
   parseTenderDetail,
   parseAdjudicationDetail,
+  extractBuyObject,
   type TenderItem,
 } from './arce-parser'
 
@@ -42,6 +43,11 @@ export async function enrichOpportunity(opportunityId: string): Promise<void> {
   }
 
   const data: Prisma.OpportunityUpdateInput = { enrichedAt: new Date() }
+
+  // The buy-object one-liner (real object of the call) is on the detail page for
+  // both tenders and adjudications. Keep the previous value if it's absent now.
+  const buyObject = extractBuyObject(html)
+  if (buyObject) data.objectDescription = buyObject
 
   try {
     if (isAdjudication(html)) {

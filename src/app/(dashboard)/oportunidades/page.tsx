@@ -11,7 +11,8 @@ import { Pagination } from '@/components/ui/pagination'
 import { OpportunitiesFilters } from '@/components/opportunities-filters'
 import { StatusSelect } from '@/components/status-select'
 import { getEffectiveCompanyId } from '@/lib/tenant'
-import { formatDateDMY, truncate } from '@/lib/format'
+import { formatDateDMY } from '@/lib/format'
+import { opportunityObjeto, opportunitySubtitle } from '@/lib/opportunity-labels'
 import { startOfToday, addDays } from '@/lib/dates'
 
 const PAGE_SIZE = 20
@@ -133,8 +134,7 @@ export default async function OpportunitiesPage({
             <THead>
               <Tr>
                 <Th>Fecha</Th>
-                <Th>Organismo</Th>
-                <Th>Título</Th>
+                <Th>Oportunidad</Th>
                 <Th>Categoría</Th>
                 <Th>Puntaje</Th>
                 <Th>Estado</Th>
@@ -146,9 +146,11 @@ export default async function OpportunitiesPage({
                   <Td className="whitespace-nowrap text-[#6b7280]">
                     {formatDateDMY(opp.publicationDate)}
                   </Td>
-                  <Td className="text-[#6b7280]">{truncate(opp.organismo ?? '—', 30)}</Td>
                   <Td>
-                    <span className="font-medium text-[#0c1e3c]">{truncate(opp.title, 60)}</span>
+                    <div className="font-medium text-[#0c1e3c]">{opportunityObjeto(opp, 80)}</div>
+                    <div className="mt-0.5 text-xs text-[#6b7280]">
+                      {opportunitySubtitle(opp, { shortType: true })}
+                    </div>
                   </Td>
                   <Td>
                     <CategoryBadge category={opp.category} />

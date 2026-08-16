@@ -16,6 +16,7 @@ import { PliegoChat } from '@/components/opportunity/pliego-chat'
 import { scoreColorClass } from '@/components/ui/score-badge'
 import { getBusinessDaysUntilClosing, getUrgencyLevel } from '@/lib/urgency-utils'
 import { formatDateDMY, formatDateTime } from '@/lib/format'
+import { opportunityObjeto, opportunitySubtitle } from '@/lib/opportunity-labels'
 import type { ProposalData } from '@/lib/actions/proposals'
 import type { TenderItem } from '@/lib/scraper/arce-parser'
 import type {
@@ -161,7 +162,14 @@ export default async function OpportunityDetailPage({
           <div className="space-y-6 lg:col-span-2">
             <Card>
               <CardBody className="space-y-4">
-                <h1 className="text-xl font-bold text-[#0c1e3c]">{opportunity.title}</h1>
+                <div>
+                  <h1 className="text-xl font-bold text-[#0c1e3c]">
+                    {opportunityObjeto(opportunity, 160)}
+                  </h1>
+                  <p className="mt-1 text-sm text-[#6b7280]">
+                    {opportunitySubtitle(opportunity)}
+                  </p>
+                </div>
 
                 <div className="flex flex-wrap gap-2">
                   <a
@@ -176,8 +184,6 @@ export default async function OpportunityDetailPage({
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 border-t border-[#e0f2fe] pt-4">
-                  <MetaItem label="Organismo" value={opportunity.organismo ?? '—'} />
-                  <MetaItem label="Tipo de llamado" value={opportunity.tenderType ?? '—'} />
                   <MetaItem
                     label="Fecha de publicación"
                     value={formatDateDMY(opportunity.publicationDate)}
