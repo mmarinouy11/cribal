@@ -306,6 +306,33 @@ export async function runPipeline(companyId: string): Promise<void> {
       console.error(`[CRIBAL][NICHOS] Error ingiriendo fallos: ${message}`)
     }
 
+    // 11c. Re-enrich opportunities under active review (REVISANDO) so their dates
+    // and pliego data stay fresh while being worked. Best-effort. (`url` is always
+    // present, so no null check is needed.)
+    try {
+      const watchedOpportunities = await prisma.opportunity.findMany({
+        where: { companyId: company.id, status: 'REVISANDO' },
+        select: { id: true },
+      })
+
+      for (const opp of watchedOpportunities) {
+        await enrichOpportunity(opp.id)
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+
+      if (watchedOpportunities.length > 0) {
+        console.log(
+          `[CRIBAL] Re-enriquecidas ${watchedOpportunities.length} oportunidades en seguimiento`
+        )
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      errors.push({ stage: 'reenrich', message })
+      console.error(
+        `[CRIBAL] Error re-enriqueciendo oportunidades en seguimiento: ${message}`
+      )
+    }
+
     // 12. Send the digest email.
     try {
       await sendDigest(savedOpportunities, newTenders, company, run.id, newDigestNiches)
