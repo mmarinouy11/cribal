@@ -421,7 +421,7 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="rounded-lg border border-[#e0f2fe] p-4 text-sm text-[#0c1e3c]">
-                  Score mínimo: <span className="font-semibold">{config.minimumScore}</span>
+                  Puntaje mínimo: <span className="font-semibold">{config.minimumScore}</span>
                 </div>
 
                 {config.reasoning && (
@@ -474,7 +474,7 @@ export default function RegisterPage() {
                       />
                     </div>
                     <div>
-                      <label className={labelClass}>Score mínimo: {config.minimumScore}</label>
+                      <label className={labelClass}>Puntaje mínimo: {config.minimumScore}</label>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"

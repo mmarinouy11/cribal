@@ -28,7 +28,7 @@ export function OnboardingBanner() {
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <i className="ti ti-confetti text-[#06b6d4]" aria-hidden />
         <span className="truncate">
-          Bienvenido a Cribal · El pipeline correrá hoy a las 8:00 AM
+          Bienvenido a Cribal · La criba correrá hoy a las 8:00 AM
         </span>
       </span>
       <Link href="/perfil" className="shrink-0 font-medium text-[#06b6d4] hover:underline">

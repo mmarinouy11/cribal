@@ -68,9 +68,9 @@ export function CompanyRunButton({ companyId }: { companyId: string }) {
     startTransition(async () => {
       try {
         await triggerCompanyPipeline(companyId)
-        setToast({ message: 'Pipeline iniciado', type: 'success' })
+        setToast({ message: 'Criba iniciada', type: 'success' })
       } catch {
-        setToast({ message: 'No se pudo iniciar el pipeline', type: 'error' })
+        setToast({ message: 'No se pudo iniciar la criba', type: 'error' })
       }
     })
   }
@@ -78,7 +78,7 @@ export function CompanyRunButton({ companyId }: { companyId: string }) {
   return (
     <>
       <Button variant="secondary" size="sm" onClick={handleRun} disabled={isPending}>
-        {isPending ? 'Iniciando…' : 'Correr pipeline'}
+        {isPending ? 'Iniciando…' : 'Correr la criba'}
       </Button>
       {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
     </>
@@ -149,9 +149,9 @@ export function RunAllButton() {
     startTransition(async () => {
       try {
         await triggerAllPipelines()
-        setToast({ message: 'Pipeline iniciado para todas las empresas', type: 'success' })
+        setToast({ message: 'Criba iniciada para todas las empresas', type: 'success' })
       } catch {
-        setToast({ message: 'No se pudo iniciar el pipeline', type: 'error' })
+        setToast({ message: 'No se pudo iniciar la criba', type: 'error' })
       }
     })
   }
@@ -159,7 +159,7 @@ export function RunAllButton() {
   return (
     <>
       <Button onClick={handleRunAll} disabled={isPending}>
-        {isPending ? 'Iniciando…' : 'Correr pipeline para todas las empresas'}
+        {isPending ? 'Iniciando…' : 'Correr la criba para todas las empresas'}
       </Button>
       {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
     </>

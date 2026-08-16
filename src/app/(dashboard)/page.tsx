@@ -200,7 +200,7 @@ export default async function DashboardPage() {
 
       <header className="flex items-start justify-between">
         <div>
-          <h1 className="text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">Dashboard</h1>
+          <h1 className="text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">Tablero</h1>
           <p className="text-[13px] text-[#94a3b8]">
             {session.user.companyName} · {formatSpanishDate(new Date())}
           </p>
@@ -297,7 +297,7 @@ export default async function DashboardPage() {
                         {businessDays === 1 ? '' : 'ES'}
                       </p>
                       <p className="mt-0.5 text-xs text-[#6b7280]">
-                        {opp.organismo ?? '—'} · {formatDateTime(opp.closingDate)} · Score{' '}
+                        {opp.organismo ?? '—'} · {formatDateTime(opp.closingDate)} · Puntaje{' '}
                         {opp.score}
                       </p>
                     </div>
@@ -364,7 +364,7 @@ export default async function DashboardPage() {
         </div>
         {recentOpportunities.length === 0 ? (
           <p className="px-5 py-8 text-center text-sm text-[#6b7280]">
-            Todavía no hay oportunidades. Corré el pipeline para empezar.
+            Todavía no hay oportunidades. Corré la criba para empezar.
           </p>
         ) : (
           <Table>
@@ -374,7 +374,7 @@ export default async function DashboardPage() {
                 <Th>Organismo</Th>
                 <Th>Título</Th>
                 <Th>Categoría</Th>
-                <Th>Score</Th>
+                <Th>Puntaje</Th>
                 <Th>Estado</Th>
               </Tr>
             </THead>

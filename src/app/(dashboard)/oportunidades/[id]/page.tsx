@@ -298,7 +298,7 @@ export default async function OpportunityDetailPage({
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wide text-[#6b7280]">
-                      Score IA
+                      Puntaje IA
                     </div>
                     <div className="mt-1 flex items-baseline gap-2">
                       <span

@@ -12,7 +12,7 @@ interface RunPipelineButtonProps {
 }
 
 export function RunPipelineButton({
-  label = 'Correr pipeline ahora',
+  label = 'Correr la criba ahora',
   variant = 'primary',
 }: RunPipelineButtonProps) {
   const router = useRouter()
@@ -27,7 +27,7 @@ export function RunPipelineButton({
         // Give the background run a moment, then refresh server data.
         setTimeout(() => router.refresh(), 1500)
       } catch {
-        setToast({ message: 'No se pudo iniciar el pipeline', type: 'error' })
+        setToast({ message: 'No se pudo iniciar la criba', type: 'error' })
       }
     })
   }

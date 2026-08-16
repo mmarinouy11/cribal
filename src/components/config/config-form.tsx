@@ -254,7 +254,7 @@ export function ConfigForm({
             </div>
             <div>
               <p className="font-medium text-[#0c1e3c]">
-                Score mínimo sugerido: {suggestion.minimumScore}
+                Puntaje mínimo sugerido: {suggestion.minimumScore}
               </p>
             </div>
           </div>
@@ -296,7 +296,7 @@ export function ConfigForm({
             inputType="email"
           />
         </Field>
-        <Field label={`Score mínimo: ${form.minimumScore}`}>
+        <Field label={`Puntaje mínimo: ${form.minimumScore}`}>
           <input
             type="range"
             min={5}
@@ -309,7 +309,7 @@ export function ConfigForm({
         </Field>
         <Field
           label="Cadencia de ejecución"
-          helper="El pipeline se ejecutará cada N días. Valores más altos reducen el consumo de créditos pero detectan oportunidades con menos frecuencia."
+          helper="La criba se ejecutará cada N días. Valores más altos reducen el consumo de créditos pero detectan oportunidades con menos frecuencia."
         >
           <select
             value={form.lookbackDays}

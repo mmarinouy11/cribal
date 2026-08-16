@@ -23,5 +23,5 @@ export async function triggerRun(companyId?: string): Promise<{ message: string 
     console.error(`[CRIBAL][ACTION] Error en pipeline (companyId=${targetCompanyId}): ${message}`)
   })
 
-  return { message: 'Pipeline iniciado' }
+  return { message: 'Criba iniciada' }
 }

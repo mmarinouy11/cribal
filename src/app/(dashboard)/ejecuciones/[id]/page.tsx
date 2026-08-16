@@ -47,7 +47,7 @@ const RAW_TABS: { key: string; label: string; filter: string | null }[] = [
   { key: 'todos', label: 'Todos', filter: null },
   { key: 'guardados', label: 'Guardados', filter: 'guardado' },
   { key: 'keywords', label: 'Rechazados por keywords', filter: 'keyword_rechazado' },
-  { key: 'stage-gate', label: 'Rechazados stage-gate', filter: 'stage_gate_rechazado' },
+  { key: 'stage-gate', label: 'Rechazados filtro de etapa', filter: 'stage_gate_rechazado' },
   { key: 'duplicados', label: 'Duplicados', filter: 'duplicado' },
 ]
 
@@ -129,7 +129,7 @@ export default async function RunDetailPage({
     { label: 'Items encontrados', count: run.rawItemsFound },
     { label: 'Tras filtro de fecha', count: run.itemsAfterDateFilter },
     { label: 'Tras keywords', count: run.itemsAfterKeyword },
-    { label: 'Tras stage-gate', count: run.itemsAfterStageGate },
+    { label: 'Tras filtro de etapa', count: run.itemsAfterStageGate },
     { label: 'Enviados a IA', count: run.itemsSentToAi },
     { label: 'Oportunidades guardadas', count: run.opportunitiesSaved },
   ]
@@ -174,7 +174,7 @@ export default async function RunDetailPage({
 
       <Card>
         <div className="border-b border-[#e0f2fe] px-5 py-4">
-          <h2 className="font-semibold text-[#0c1e3c]">Embudo del pipeline</h2>
+          <h2 className="font-semibold text-[#0c1e3c]">Criba de oportunidades</h2>
         </div>
         <CardBody className="space-y-2">
           {funnelStages.map((stage, index) => (
@@ -224,7 +224,7 @@ export default async function RunDetailPage({
               <Tr>
                 <Th>Título</Th>
                 <Th>Organismo</Th>
-                <Th>Score</Th>
+                <Th>Puntaje</Th>
                 <Th>Estado</Th>
               </Tr>
             </THead>

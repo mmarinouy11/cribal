@@ -107,7 +107,7 @@ export default async function OpportunitiesPage({
                 <Th>Organismo</Th>
                 <Th>Título</Th>
                 <Th>Categoría</Th>
-                <Th>Score</Th>
+                <Th>Puntaje</Th>
                 <Th>Estado</Th>
               </Tr>
             </THead>
