@@ -2,11 +2,18 @@
 
 import { useState, type FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { SIGNAL_OPTIONS, NICHE_CATEGORY_OPTIONS, NICHE_STATUS_OPTIONS } from './niche-badges'
+import { NICHE_CATEGORY_OPTIONS, NICHE_STATUS_OPTIONS } from './niche-badges'
 
 const FAILURE_TYPE_OPTIONS = [
   { value: 'DESIERTA', label: 'Desiertas' },
   { value: 'OFERTAS_RECHAZADAS', label: 'Ofertas rechazadas' },
+]
+
+const MIN_SCORE_OPTIONS = [
+  { value: '6', label: '6+' },
+  { value: '7', label: '7+' },
+  { value: '8', label: '8+' },
+  { value: '9', label: '9+' },
 ]
 
 // FUERA is an audit view (discarded failures), off by default and kept separate
@@ -77,7 +84,7 @@ export function NicheFilters() {
 
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-lg border border-[#e0f2fe] bg-[#f8fafc] px-4 py-3">
-      <Select label="Señal" param="signal" allLabel="Todas" options={SIGNAL_OPTIONS} />
+      <Select label="Puntaje mínimo" param="minScore" allLabel="Todos" options={MIN_SCORE_OPTIONS} />
       <Select label="Categoría" param="category" allLabel="Todas" options={CATEGORY_FILTER_OPTIONS} />
       <Select label="Tipo de fallo" param="failureType" allLabel="Todos" options={FAILURE_TYPE_OPTIONS} />
       <Select label="Estado" param="status" allLabel="Todos" options={NICHE_STATUS_OPTIONS} />

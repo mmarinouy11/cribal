@@ -4,7 +4,6 @@ import {
   Prisma,
   NicheCategory,
   NicheStatus,
-  SignalStrength,
   FailureType,
   type Niche,
   type FailedTender,
@@ -15,13 +14,12 @@ import { Card } from '@/components/ui/card'
 import { NicheFilters } from '@/components/niche/niche-filters'
 import { NicheStatusSelect } from '@/components/niche/niche-status-select'
 import {
-  SignalBadge,
   NicheCategoryBadge,
   FailureTypeTag,
   RecallTag,
-  SIGNAL_META,
   labelBuiltFromObject,
 } from '@/components/niche/niche-badges'
+import { computeNicheScore, nicheScoreAccent } from '@/lib/niche-score'
 import { formatRelativeTime } from '@/lib/format'
 
 type SearchParams = { [key: string]: string | string[] | undefined }
@@ -30,8 +28,7 @@ function firstValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value
 }
 
-const SIGNAL_RANK: Record<SignalStrength, number> = { ALTA: 0, MEDIA: 1, BAJA: 2 }
-// ADYACENTE ranks before NUCLEO on a signal tie: it is what the user cannot find
+// ADYACENTE ranks before NUCLEO on a score tie: it is what the user cannot find
 // through any other channel.
 const CATEGORY_RANK: Record<NicheCategory, number> = { ADYACENTE: 0, NUCLEO: 1, FUERA: 2 }
 
@@ -64,7 +61,8 @@ export default async function NichesPage({
   if (!session) redirect('/login')
   const companyId = session.user.companyId
 
-  const signal = firstValue(searchParams.signal)
+  const minScoreParam = firstValue(searchParams.minScore)
+  const minScore = minScoreParam ? Number(minScoreParam) : null
   const category = firstValue(searchParams.category)
   const failureType = firstValue(searchParams.failureType)
   const status = firstValue(searchParams.status)
@@ -74,7 +72,7 @@ export default async function NichesPage({
   // become niches) so the user can spot misclassifications.
   const isFueraAudit = category === NicheCategory.FUERA
 
-  let niches: Niche[] = []
+  let ranked: { niche: Niche; score: number }[] = []
   let discarded: FailedTender[] = []
 
   if (isFueraAudit) {
@@ -88,7 +86,6 @@ export default async function NichesPage({
     })
   } else {
     const where: Prisma.NicheWhereInput = { companyId }
-    if (isValidEnum(SignalStrength, signal)) where.signalStrength = signal
     if (category === NicheCategory.NUCLEO || category === NicheCategory.ADYACENTE) {
       where.category = category
     }
@@ -104,18 +101,20 @@ export default async function NichesPage({
     }
     if (organismo) where.organismo = { contains: organismo, mode: 'insensitive' }
 
-    niches = await prisma.niche.findMany({ where })
+    const niches = await prisma.niche.findMany({ where })
 
-    // Sort: signal desc → category (adyacente first) → lastFailureAt desc.
-    niches.sort((a, b) => {
-      if (SIGNAL_RANK[a.signalStrength] !== SIGNAL_RANK[b.signalStrength]) {
-        return SIGNAL_RANK[a.signalStrength] - SIGNAL_RANK[b.signalStrength]
-      }
-      if (CATEGORY_RANK[a.category] !== CATEGORY_RANK[b.category]) {
-        return CATEGORY_RANK[a.category] - CATEGORY_RANK[b.category]
-      }
-      return b.lastFailureAt.getTime() - a.lastFailureAt.getTime()
-    })
+    // Compute the single 0-10 puntaje, apply the minimum-score filter, and sort:
+    // puntaje desc → category (adyacente first) → lastFailureAt desc.
+    ranked = niches
+      .map((niche) => ({ niche, score: computeNicheScore(niche) }))
+      .filter((r) => minScore === null || Number.isNaN(minScore) || r.score >= minScore)
+      .sort((a, b) => {
+        if (a.score !== b.score) return b.score - a.score
+        if (CATEGORY_RANK[a.niche.category] !== CATEGORY_RANK[b.niche.category]) {
+          return CATEGORY_RANK[a.niche.category] - CATEGORY_RANK[b.niche.category]
+        }
+        return b.niche.lastFailureAt.getTime() - a.niche.lastFailureAt.getTime()
+      })
   }
 
   return (
@@ -156,7 +155,7 @@ export default async function NichesPage({
                     <FailureTypeTag type={failure.failureType} count={1} />
                   </div>
                   <span className="shrink-0 text-sm font-semibold text-[#6b7280]">
-                    Encaje {failure.fitScore}/10
+                    Puntaje {failure.fitScore}/10
                   </span>
                 </div>
                 <h2 className="mt-3 font-medium text-[#0c1e3c]">{failure.title}</h2>
@@ -180,15 +179,17 @@ export default async function NichesPage({
             ))
           )}
         </div>
-      ) : niches.length === 0 ? (
+      ) : ranked.length === 0 ? (
         <Card>
           <p className="px-5 py-12 text-center text-sm text-[#6b7280]">
-            Todavía no detectamos nichos. El pipeline los busca en cada ejecución.
+            {minScore !== null
+              ? 'Ningún nicho alcanza ese puntaje mínimo.'
+              : 'Todavía no detectamos nichos. La criba los busca en cada ejecución.'}
           </p>
         </Card>
       ) : (
         <div className="space-y-4">
-          {niches.map((niche) => {
+          {ranked.map(({ niche, score }) => {
             const months = monthsBetween(niche.firstFailureAt, niche.lastFailureAt)
             const showRecall =
               niche.failureCount === 1 && daysAgo(niche.lastFailureAt) < RECALL_WINDOW_DAYS
@@ -199,16 +200,15 @@ export default async function NichesPage({
               <div
                 key={niche.id}
                 className="rounded-xl border border-[#e0f2fe] border-l-4 bg-white p-5 shadow-sm"
-                style={{ borderLeftColor: SIGNAL_META[niche.signalStrength].borderColor }}
+                style={{ borderLeftColor: nicheScoreAccent(score) }}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <SignalBadge signal={niche.signalStrength} />
                     <NicheCategoryBadge category={niche.category} />
                     {showRecall && <RecallTag />}
                   </div>
                   <span className="shrink-0 text-sm font-semibold text-[#0c1e3c]">
-                    Encaje {niche.fitScore}/10
+                    Puntaje {score}/10
                   </span>
                 </div>
 

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { OpportunityStatus, RunStatus, NicheStatus, SignalStrength } from '@prisma/client'
+import { OpportunityStatus, RunStatus, NicheStatus } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
 import { Card } from '@/components/ui/card'
@@ -17,6 +17,7 @@ import { RunPipelineButton } from '@/components/run-pipeline-button'
 import { OnboardingBanner } from '@/components/onboarding-banner'
 import { ClosingTimeline } from '@/components/dashboard/closing-timeline'
 import { getUrgentOpportunities, getBusinessDaysUntilClosing } from '@/lib/pipeline/urgency'
+import { computeNicheScore } from '@/lib/niche-score'
 import { daysUntilNextRun } from '@/lib/cadence'
 import { startOfToday, addDays } from '@/lib/dates'
 import { cn } from '@/lib/cn'
@@ -100,7 +101,7 @@ export default async function DashboardPage() {
     timelineOpportunities,
     urgentAll,
     nichesActiveCount,
-    highSignalNiches,
+    activeNiches,
   ] = await Promise.all([
     prisma.opportunity.count({
       where: { companyId, status: { notIn: INACTIVE_STATUSES } },
@@ -152,20 +153,25 @@ export default async function DashboardPage() {
     prisma.niche.findMany({
       where: {
         companyId,
-        signalStrength: SignalStrength.ALTA,
         status: { notIn: [NicheStatus.DESCARTADO, NicheStatus.ARCHIVADO] },
       },
-      orderBy: { lastFailureAt: 'desc' },
-      take: 3,
       select: {
         id: true,
         label: true,
         category: true,
         failureCount: true,
         lastFailureAt: true,
+        fitScore: true,
       },
     }),
   ])
+
+  // Top niches by puntaje (0-10 combining fit + recurrence + recency).
+  const topNiches = activeNiches
+    .map((niche) => ({ ...niche, score: computeNicheScore(niche) }))
+    .filter((niche) => niche.score >= 8)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
 
   // Timeline items are guaranteed to have a closing date by the query filter.
   const timelineItems = timelineOpportunities
@@ -331,19 +337,19 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {highSignalNiches.length > 0 && (
+      {topNiches.length > 0 && (
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.4px] text-[#8b5cf6]">
               <i className="ti ti-bulb" aria-hidden />
-              Nichos de alta señal
+              Nichos destacados
             </h2>
             <Link href="/nichos" className="text-[13px] text-[#06b6d4] hover:underline">
               Ver todos los nichos →
             </Link>
           </div>
           <Card className="divide-y divide-[#e0f2fe]">
-            {highSignalNiches.map((niche) => (
+            {topNiches.map((niche) => (
               <div key={niche.id} className="flex items-center justify-between gap-3 px-5 py-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="min-w-0 truncate font-medium text-[#0c1e3c]">
@@ -353,8 +359,8 @@ export default async function DashboardPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-4 text-xs text-[#6b7280]">
                   <span>
-                    {niche.failureCount} fallo{niche.failureCount === 1 ? '' : 's'} ·{' '}
-                    {formatRelativeTime(niche.lastFailureAt)}
+                    Puntaje {niche.score}/10 · {niche.failureCount} fallo
+                    {niche.failureCount === 1 ? '' : 's'} · {formatRelativeTime(niche.lastFailureAt)}
                   </span>
                   <Link
                     href={`/nichos/${niche.id}`}
