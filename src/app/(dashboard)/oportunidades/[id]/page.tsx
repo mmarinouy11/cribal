@@ -7,7 +7,7 @@ import { Card, CardBody } from '@/components/ui/card'
 import { CategoryBadge } from '@/components/ui/category-badge'
 import { Badge } from '@/components/ui/badge'
 import { buttonClass } from '@/components/ui/button-styles'
-import { ReviewPanel } from '@/components/review-panel'
+import { OpportunityActions } from '@/components/opportunity/opportunity-actions'
 import { ProposalGenerator } from '@/components/proposal/proposal-generator'
 import { DetailTabs, type DetailTab } from '@/components/opportunity/detail-tabs'
 import { EnrichButton } from '@/components/opportunity/enrich-button'
@@ -132,12 +132,8 @@ export default async function OpportunityDetailPage({
     : null
 
   const scoreWidth = `${Math.max(0, Math.min(10, opportunity.score)) * 10}%`
-  const rawOutput = opportunity.aiRawOutput
-    ? JSON.stringify(opportunity.aiRawOutput, null, 2)
-    : null
-  const followUp = opportunity.nextFollowUpDate
-    ? new Date(opportunity.nextFollowUpDate).toISOString().slice(0, 10)
-    : null
+  const closingHasPassed =
+    opportunity.closingDate !== null && opportunity.closingDate.getTime() < Date.now()
 
   const items = tenderItemsFromJson(opportunity.tenderItems)
   const businessDays = opportunity.closingDate
@@ -157,9 +153,14 @@ export default async function OpportunityDetailPage({
       <DetailTabs opportunityId={opportunity.id} active={tab} chatCount={chatMessages.length} />
 
       {tab === 'detalle' && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Left column — tender information */}
-          <div className="space-y-6 lg:col-span-2">
+        <div className="space-y-6">
+          <OpportunityActions
+            id={opportunity.id}
+            status={opportunity.status}
+            closingHasPassed={closingHasPassed}
+          />
+
+          <div className="space-y-6">
             <Card>
               <CardBody className="space-y-4">
                 <div>
@@ -354,38 +355,6 @@ export default async function OpportunityDetailPage({
                 </CardBody>
               </Card>
             )}
-
-            {rawOutput && (
-              <Card>
-                <CardBody>
-                  <details>
-                    <summary className="cursor-pointer text-sm font-semibold text-[#0c1e3c]">
-                      Salida cruda de la IA (debug)
-                    </summary>
-                    <pre className="mt-3 overflow-x-auto rounded-lg bg-[#0c1e3c] p-4 text-xs text-white">
-                      {rawOutput}
-                    </pre>
-                  </details>
-                </CardBody>
-              </Card>
-            )}
-          </div>
-
-          {/* Right column — review panel */}
-          <div className="space-y-4">
-            <Card>
-              <CardBody>
-                <h2 className="mb-4 font-semibold text-[#0c1e3c]">Revisión</h2>
-                <ReviewPanel
-                  id={opportunity.id}
-                  status={opportunity.status}
-                  owner={opportunity.owner}
-                  nextAction={opportunity.nextAction}
-                  nextFollowUpDate={followUp}
-                  notes={opportunity.notes}
-                />
-              </CardBody>
-            </Card>
 
             <Card>
               <CardBody className="space-y-2 text-sm text-[#6b7280]">

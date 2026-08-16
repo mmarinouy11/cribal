@@ -147,6 +147,11 @@ model Opportunity {
   nextFollowUpDate        DateTime?
   notes                   String?
 
+  // Dismissal (Desestimar) metadata
+  dismissReason           String?
+  dismissComment          String?
+  dismissedAt             DateTime?
+
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
 
@@ -236,6 +241,7 @@ enum OpportunityStatus {
   CONTACTADA
   NO_FIT
   ARCHIVADA
+  OFERTADA
 }
 
 // Conversational chat scoped to one opportunity (and company): "Consultar pliego".

@@ -44,6 +44,54 @@ export async function updateOpportunityStatus(id: string, status: string): Promi
   revalidatePath('/')
 }
 
+// Contextual state transitions from the detail page action buttons.
+const ADVANCE_TARGETS = ['REVISANDO', 'RELEVANTE', 'OFERTADA', 'ARCHIVADA', 'NUEVA'] as const
+type AdvanceTarget = (typeof ADVANCE_TARGETS)[number]
+
+/**
+ * Move an opportunity to a new status via a contextual action (seguir, tomar,
+ * marcar ofertada, archivar, reabrir). Reopening (NUEVA) clears the dismissal
+ * metadata. Company-scoped.
+ */
+export async function advanceOpportunity(id: string, target: AdvanceTarget): Promise<void> {
+  await assertOwnership(id)
+  if (!ADVANCE_TARGETS.includes(target)) throw new Error('Transición inválida')
+
+  const data: Prisma.OpportunityUpdateInput = { status: target }
+  if (target === 'NUEVA') {
+    data.dismissReason = null
+    data.dismissComment = null
+    data.dismissedAt = null
+  }
+
+  await prisma.opportunity.update({ where: { id }, data })
+  revalidatePath('/oportunidades')
+  revalidatePath(`/oportunidades/${id}`)
+  revalidatePath('/')
+}
+
+/** Dismiss (Desestimar) an opportunity with a reason and optional comment. */
+export async function dismissOpportunity(
+  id: string,
+  reason: string,
+  comment: string
+): Promise<void> {
+  await assertOwnership(id)
+
+  await prisma.opportunity.update({
+    where: { id },
+    data: {
+      status: 'DESCARTADA',
+      dismissReason: reason || null,
+      dismissComment: comment.trim() || null,
+      dismissedAt: new Date(),
+    },
+  })
+  revalidatePath('/oportunidades')
+  revalidatePath(`/oportunidades/${id}`)
+  revalidatePath('/')
+}
+
 export interface OpportunityReviewInput {
   status?: string
   owner?: string
