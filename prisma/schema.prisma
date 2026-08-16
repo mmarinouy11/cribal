@@ -179,6 +179,9 @@ model Opportunity {
   // Pliego chat: cached extracted PDF text (lazily populated on first chat use)
   pliegoText              String?       @db.Text
 
+  // Submission conditions analysis (on-demand, Claude-generated JSON)
+  conditionsAnalysis      Json?
+
   proposals               Proposal[]
   marketAnalyses          MarketAnalysis[]
   pliegoChat              PliegoChat?

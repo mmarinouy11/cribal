@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { buttonClass } from '@/components/ui/button-styles'
 import { OpportunityActions } from '@/components/opportunity/opportunity-actions'
 import { LicitacionTimeline } from '@/components/opportunity/licitacion-timeline'
+import { ConditionsPanel } from '@/components/opportunity/conditions-panel'
 import { ProposalGenerator } from '@/components/proposal/proposal-generator'
 import { DetailTabs, type DetailTab } from '@/components/opportunity/detail-tabs'
 import { EnrichButton } from '@/components/opportunity/enrich-button'
@@ -18,6 +19,7 @@ import { scoreColorClass } from '@/components/ui/score-badge'
 import { getBusinessDaysUntilClosing, getUrgencyLevel } from '@/lib/urgency-utils'
 import { formatDateDMY, formatDateTime } from '@/lib/format'
 import { opportunityObjeto, opportunitySubtitle } from '@/lib/opportunity-labels'
+import { parseConditions } from '@/lib/conditions'
 import type { ProposalData } from '@/lib/actions/proposals'
 import type { TenderItem } from '@/lib/scraper/arce-parser'
 import type {
@@ -370,6 +372,11 @@ export default async function OpportunityDetailPage({
                 )}
               </CardBody>
             </Card>
+
+            <ConditionsPanel
+              opportunityId={opportunity.id}
+              analysis={parseConditions(opportunity.conditionsAnalysis)}
+            />
 
             {opportunity.description && (
               <Card>
