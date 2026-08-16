@@ -42,6 +42,7 @@ function MetricCard({
   valueClassName,
   label,
   extra,
+  href,
 }: {
   icon: string
   iconColor: string
@@ -50,9 +51,10 @@ function MetricCard({
   valueClassName?: string
   label: string
   extra?: ReactNode
+  href?: string
 }) {
-  return (
-    <Card>
+  const card = (
+    <Card className={cn('h-full', href && 'cursor-pointer transition-shadow hover:shadow-md')}>
       <div className="p-5">
         <div className={cn('flex h-10 w-10 items-center justify-center rounded-[10px]', iconBg)}>
           <i className={cn('ti', icon, 'text-xl', iconColor)} aria-hidden />
@@ -69,6 +71,14 @@ function MetricCard({
         {extra}
       </div>
     </Card>
+  )
+
+  return href ? (
+    <Link href={href} className="block h-full">
+      {card}
+    </Link>
+  ) : (
+    card
   )
 }
 
@@ -223,6 +233,7 @@ export default async function DashboardPage() {
           iconBg="bg-[#e0f2fe]"
           value={activeCount}
           label="Oportunidades activas"
+          href="/oportunidades?estado=activas"
         />
         <MetricCard
           icon="ti-sparkles"
@@ -230,6 +241,7 @@ export default async function DashboardPage() {
           iconBg="bg-[#ede9fe]"
           value={newThisWeek}
           label="Nuevas esta semana"
+          href="/oportunidades?estado=NUEVA"
         />
         <MetricCard
           icon="ti-star"
@@ -237,6 +249,7 @@ export default async function DashboardPage() {
           iconBg="bg-[#fef3c7]"
           value={highlyRelevant}
           label="Muy relevantes"
+          href="/oportunidades?minScore=8"
         />
         <MetricCard
           icon="ti-clock"
@@ -245,6 +258,7 @@ export default async function DashboardPage() {
           value={lastRunValue}
           valueClassName="text-lg font-semibold leading-tight"
           label="Última ejecución"
+          href="/ejecuciones"
           extra={
             <div className="mt-1.5 space-y-1">
               {nextRunLabel && (
@@ -264,6 +278,7 @@ export default async function DashboardPage() {
           iconBg="bg-[#fee2e2]"
           value={closingThisWeekCount}
           label="Cierran esta semana"
+          href="/oportunidades?cierranEstaSemana=true"
         />
         <MetricCard
           icon="ti-bulb"
@@ -271,6 +286,7 @@ export default async function DashboardPage() {
           iconBg="bg-[#ede9fe]"
           value={nichesActiveCount}
           label="Nichos detectados"
+          href="/nichos"
         />
       </section>
 

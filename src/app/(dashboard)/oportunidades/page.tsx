@@ -12,8 +12,17 @@ import { OpportunitiesFilters } from '@/components/opportunities-filters'
 import { StatusSelect } from '@/components/status-select'
 import { getEffectiveCompanyId } from '@/lib/tenant'
 import { formatDateDMY, truncate } from '@/lib/format'
+import { startOfToday, addDays } from '@/lib/dates'
 
 const PAGE_SIZE = 20
+
+// Statuses considered "not active" (closed/discarded), used by the dashboard
+// card shortcuts (?estado=activas / ?cierranEstaSemana=true).
+const INACTIVE_STATUSES: OpportunityStatus[] = [
+  OpportunityStatus.DESCARTADA,
+  OpportunityStatus.ARCHIVADA,
+  OpportunityStatus.NO_FIT,
+]
 
 type SearchParams = { [key: string]: string | string[] | undefined }
 
@@ -45,13 +54,31 @@ export default async function OpportunitiesPage({
   const categoryParam = firstValue(searchParams.category)
   const qParam = firstValue(searchParams.q)
   const pageParam = firstValue(searchParams.page)
+  // Dashboard card shortcuts.
+  const estadoParam = firstValue(searchParams.estado)
+  const cierranEstaSemana = firstValue(searchParams.cierranEstaSemana) === 'true'
 
   const statuses = parseStatuses(statusParam)
   const minScore = minScoreParam ? Number(minScoreParam) : undefined
   const page = Math.max(1, Number(pageParam) || 1)
 
   const where: Prisma.OpportunityWhereInput = { companyId }
-  if (statuses.length > 0) where.status = { in: statuses }
+
+  // Status: the filter chips (?status=…) win; otherwise the dashboard's
+  // ?estado shortcut applies ("activas" = not closed, or a specific status).
+  if (statuses.length > 0) {
+    where.status = { in: statuses }
+  } else if (estadoParam === 'activas' || cierranEstaSemana) {
+    where.status = { notIn: INACTIVE_STATUSES }
+  } else if (estadoParam && Object.values(OpportunityStatus).includes(estadoParam as OpportunityStatus)) {
+    where.status = estadoParam as OpportunityStatus
+  }
+
+  // "Cierran esta semana": open opportunities closing within the next 7 days.
+  if (cierranEstaSemana) {
+    where.closingDate = { gte: startOfToday(), lte: addDays(new Date(), 7) }
+  }
+
   if (minScore !== undefined && !Number.isNaN(minScore)) where.score = { gte: minScore }
   if (categoryParam) where.category = categoryParam
   if (qParam) {
@@ -79,6 +106,8 @@ export default async function OpportunitiesPage({
     category: categoryParam,
     q: qParam,
     companyId: companyIdParam,
+    estado: estadoParam,
+    cierranEstaSemana: cierranEstaSemana ? 'true' : undefined,
   }
 
   return (
