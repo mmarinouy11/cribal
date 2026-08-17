@@ -8,24 +8,25 @@ datasource db {
 }
 
 model CompanyConfig {
-  id                  String             @id @default(uuid())
-  companyName         String
-  description         String?
-  capabilities        String[]
-  relevantKeywords    String[]
-  excludedKeywords    String[]
-  excludedProducts    String[]
-  minimumScore        Int                @default(7)
-  lookbackDays        Int                @default(1) // 1-7 only (enforced in UI and action)
-  lastSuccessfulRunAt DateTime? // Updated after each successful pipeline run
-  rssFeeds            String[]
-  customAiPrompt      String?
-  notificationEmails  String[]
-  isActive            Boolean            @default(true)
-  registrationStatus  RegistrationStatus @default(PENDING)
-  registeredAt        DateTime?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  id                    String             @id @default(uuid())
+  companyName           String
+  description           String?
+  capabilities          String[]
+  relevantKeywords      String[]
+  excludedKeywords      String[]
+  excludedProducts      String[]
+  minimumScore          Int                @default(7)
+  lookbackDays          Int                @default(1) // 1-7 only (enforced in UI and action)
+  lastSuccessfulRunAt   DateTime? // Updated after each successful pipeline run
+  rssFeeds              String[]
+  customAiPrompt        String?
+  notificationEmails    String[]
+  emailOnlyWhenRelevant Boolean            @default(false)
+  isActive              Boolean            @default(true)
+  registrationStatus    RegistrationStatus @default(PENDING)
+  registeredAt          DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
   runs          Run[]
   opportunities Opportunity[]

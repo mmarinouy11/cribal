@@ -266,6 +266,17 @@ export async function sendDigest(
   runId: string,
   niches: NicheDigestItem[] = []
 ): Promise<void> {
+  const hasRelevant = savedOpportunities.length > 0
+
+  // If the company only wants emails when there are relevant opportunities, skip
+  // the digest on days without any relevant matches.
+  if (company.emailOnlyWhenRelevant && !hasRelevant) {
+    console.log(
+      `[CRIBAL][EMAIL] Omitiendo email para ${company.companyName} — sin relevantes y modo solo-relevantes activo (run ${runId})`
+    )
+    return
+  }
+
   if (savedOpportunities.length === 0 && allNewTenders.length === 0) {
     console.log(
       `[CRIBAL][EMAIL] Sin oportunidades ni llamados nuevos — no se envía email (run ${runId})`
