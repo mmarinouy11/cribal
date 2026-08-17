@@ -8,70 +8,78 @@ datasource db {
 }
 
 model CompanyConfig {
-  id                   String        @id @default(uuid())
-  companyName          String
-  description          String?
-  capabilities         String[]
-  relevantKeywords     String[]
-  excludedKeywords     String[]
-  excludedProducts     String[]
-  minimumScore         Int           @default(7)
-  lookbackDays         Int           @default(1) // 1-7 only (enforced in UI and action)
-  lastSuccessfulRunAt  DateTime?     // Updated after each successful pipeline run
-  rssFeeds             String[]
-  customAiPrompt       String?
-  notificationEmails   String[]
-  isActive             Boolean       @default(true)
-  registrationStatus   RegistrationStatus @default(PENDING)
-  registeredAt         DateTime?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  id                  String             @id @default(uuid())
+  companyName         String
+  description         String?
+  capabilities        String[]
+  relevantKeywords    String[]
+  excludedKeywords    String[]
+  excludedProducts    String[]
+  minimumScore        Int                @default(7)
+  lookbackDays        Int                @default(1) // 1-7 only (enforced in UI and action)
+  lastSuccessfulRunAt DateTime? // Updated after each successful pipeline run
+  rssFeeds            String[]
+  customAiPrompt      String?
+  notificationEmails  String[]
+  isActive            Boolean            @default(true)
+  registrationStatus  RegistrationStatus @default(PENDING)
+  registeredAt        DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
-  runs                 Run[]
-  opportunities        Opportunity[]
-  users                User[]
-  profile              CompanyProfile?
-  failedTenders        FailedTender[]
-  niches               Niche[]
+  runs          Run[]
+  opportunities Opportunity[]
+  users         User[]
+  profile       CompanyProfile?
+  failedTenders FailedTender[]
+  niches        Niche[]
 
   @@map("company_configs")
 }
 
 enum RegistrationStatus {
-  PENDING    // Just registered, awaiting first pipeline run
-  ACTIVE     // Has run at least once
-  SUSPENDED  // Admin suspended
+  PENDING // Just registered, awaiting first pipeline run
+  ACTIVE // Has run at least once
+  SUSPENDED // Admin suspended
 }
 
 model CompanyProfile {
-  id                String        @id @default(uuid())
-  companyId         String        @unique
-  company           CompanyConfig @relation(fields: [companyId], references: [id])
+  id        String        @id @default(uuid())
+  companyId String        @unique
+  company   CompanyConfig @relation(fields: [companyId], references: [id])
 
-  longDescription   String?       // Full company description for proposals
-  founded           String?       // e.g. "2015"
-  teamSize          String?       // e.g. "50-100 personas"
-  caseStudies       String?       // Free text: past relevant projects
-  certifications    String?       // e.g. "ISO 27001, CMMI Level 3"
-  differentiators   String?       // What makes the company unique
-  proposalTemplate  String?       // Custom instructions for proposal generation
+  longDescription  String? // Full company description for proposals
+  founded          String? // e.g. "2015"
+  teamSize         String? // e.g. "50-100 personas"
+  caseStudies      String? // Free text: past relevant projects
+  certifications   String? // e.g. "ISO 27001, CMMI Level 3"
+  differentiators  String? // What makes the company unique
+  proposalTemplate String? // Custom instructions for proposal generation
 
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  // Branding for exported proposal documents
+  legalName           String? // razón social
+  rut                 String? // RUT de la empresa
+  isPyme              Boolean @default(false)
+  logoUrl             String? // URL del logo subido
+  brandColorPrimary   String? @default("#0c1e3c")
+  brandColorSecondary String? @default("#06b6d4")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("company_profiles")
 }
 
 model User {
-  id            String        @id @default(uuid())
-  email         String        @unique
-  passwordHash  String
-  name          String?
-  companyId     String
-  company       CompanyConfig @relation(fields: [companyId], references: [id])
-  role          UserRole      @default(USER)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String
+  name         String?
+  companyId    String
+  company      CompanyConfig @relation(fields: [companyId], references: [id])
+  role         UserRole      @default(USER)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   @@map("users")
 }
@@ -82,26 +90,26 @@ enum UserRole {
 }
 
 model Run {
-  id                    String        @id @default(uuid())
-  companyId             String
-  company               CompanyConfig @relation(fields: [companyId], references: [id])
-  startedAt             DateTime      @default(now())
-  finishedAt            DateTime?
-  status                RunStatus     @default(RUNNING)
-  feedsChecked          Int           @default(0)
-  rawItemsFound         Int           @default(0)
-  itemsAfterDateFilter  Int           @default(0)
-  itemsAfterKeyword     Int           @default(0)
-  itemsAfterStageGate   Int           @default(0)
-  itemsSentToAi         Int           @default(0)
-  opportunitiesSaved    Int           @default(0)
-  failedTendersFound    Int           @default(0)
-  nichesDetected        Int           @default(0)
-  errors                Json          @default("[]")
-  createdAt             DateTime      @default(now())
+  id                   String        @id @default(uuid())
+  companyId            String
+  company              CompanyConfig @relation(fields: [companyId], references: [id])
+  startedAt            DateTime      @default(now())
+  finishedAt           DateTime?
+  status               RunStatus     @default(RUNNING)
+  feedsChecked         Int           @default(0)
+  rawItemsFound        Int           @default(0)
+  itemsAfterDateFilter Int           @default(0)
+  itemsAfterKeyword    Int           @default(0)
+  itemsAfterStageGate  Int           @default(0)
+  itemsSentToAi        Int           @default(0)
+  opportunitiesSaved   Int           @default(0)
+  failedTendersFound   Int           @default(0)
+  nichesDetected       Int           @default(0)
+  errors               Json          @default("[]")
+  createdAt            DateTime      @default(now())
 
-  opportunities         Opportunity[]
-  rawPublications       RawPublication[]
+  opportunities   Opportunity[]
+  rawPublications RawPublication[]
 
   @@map("runs")
 }
@@ -113,125 +121,126 @@ enum RunStatus {
 }
 
 model Opportunity {
-  id                      String            @id @default(uuid())
-  companyId               String
-  company                 CompanyConfig     @relation(fields: [companyId], references: [id])
-  runId                   String
-  run                     Run               @relation(fields: [runId], references: [id])
+  id        String        @id @default(uuid())
+  companyId String
+  company   CompanyConfig @relation(fields: [companyId], references: [id])
+  runId     String
+  run       Run           @relation(fields: [runId], references: [id])
 
-  opportunityId           String            // "arce|1345906" — unique per company
-  externalId              String
-  sourceType              String            @default("ARCE")
-  publicationDate         DateTime?
-  detectedAt              DateTime          @default(now())
+  opportunityId   String // "arce|1345906" — unique per company
+  externalId      String
+  sourceType      String    @default("ARCE")
+  publicationDate DateTime?
+  detectedAt      DateTime  @default(now())
 
-  organismo               String?
-  title                   String
-  description             String?
-  objectDescription       String?           // real object of the call, from <p class="buy-object">
-  url                     String
-  tenderType              String?
+  organismo         String?
+  title             String
+  description       String?
+  objectDescription String? // real object of the call, from <p class="buy-object">
+  url               String
+  tenderType        String?
 
-  category                String?
-  score                   Int               @default(0)
-  summary                 String?
-  recommendedPlay         String?
+  category        String?
+  score           Int     @default(0)
+  summary         String?
+  recommendedPlay String?
 
-  stageGatePassed         Boolean?
-  stageGateReason         String?
-  aiRawOutput             Json?
+  stageGatePassed Boolean?
+  stageGateReason String?
+  aiRawOutput     Json?
 
-  status                  OpportunityStatus @default(NUEVA)
-  owner                   String?
-  nextAction              String?
-  nextFollowUpDate        DateTime?
-  notes                   String?
+  status           OpportunityStatus @default(NUEVA)
+  owner            String?
+  nextAction       String?
+  nextFollowUpDate DateTime?
+  notes            String?
 
   // Dismissal (Desestimar) metadata
-  dismissReason           String?
-  dismissComment          String?
-  dismissedAt             DateTime?
+  dismissReason  String?
+  dismissComment String?
+  dismissedAt    DateTime?
 
-  createdAt               DateTime          @default(now())
-  updatedAt               DateTime          @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Enrichment fields (auto-populated after saving)
-  enrichedAt              DateTime?
-  closingDate             DateTime?     // "Recepción de ofertas hasta"
-  openingDate             DateTime?     // "Acto de Apertura"
-  prorrogasDate           DateTime?     // "Prórrogas hasta el"
-  clarificationsDate      DateTime?     // "Aclaraciones hasta el"
-  contactEmail            String?
-  contactPhone            String?
-  contactName             String?
-  pliegoUrl               String?       // PDF pliego download URL
-  tenderItems             Json?         // Array of { itemNumber, name, articleCode, quantity, unit }
-  isElectronic            Boolean?      // "Apertura electrónica"
-  urgencyAlertSentAt      DateTime?     // Last time an urgency alert email was sent
+  enrichedAt         DateTime?
+  closingDate        DateTime? // "Recepción de ofertas hasta"
+  openingDate        DateTime? // "Acto de Apertura"
+  prorrogasDate      DateTime? // "Prórrogas hasta el"
+  clarificationsDate DateTime? // "Aclaraciones hasta el"
+  contactEmail       String?
+  contactPhone       String?
+  contactName        String?
+  pliegoUrl          String? // PDF pliego download URL
+  tenderItems        Json? // Array of { itemNumber, name, articleCode, quantity, unit }
+  isElectronic       Boolean? // "Apertura electrónica"
+  urgencyAlertSentAt DateTime? // Last time an urgency alert email was sent
 
   // Market intelligence fields (populated on demand)
-  marketAnalyzedAt        DateTime?
-  similarAdjudications    Json?         // Historical similar tenders found
-  competitorMap           Json?         // Competitors who bid on similar tenders
-  priceIntelligence       Json?         // Price ranges from historical data
-  marketSummary           String?       // Claude-generated market summary
+  marketAnalyzedAt     DateTime?
+  similarAdjudications Json? // Historical similar tenders found
+  competitorMap        Json? // Competitors who bid on similar tenders
+  priceIntelligence    Json? // Price ranges from historical data
+  marketSummary        String? // Claude-generated market summary
 
   // Pliego chat: cached extracted PDF text (lazily populated on first chat use)
-  pliegoText              String?       @db.Text
+  pliegoText String? @db.Text
 
   // Submission conditions analysis (on-demand, Claude-generated JSON)
-  conditionsAnalysis      Json?
+  conditionsAnalysis Json?
 
-  proposals               Proposal[]
-  marketAnalyses          MarketAnalysis[]
-  pliegoChat              PliegoChat?
+  proposals      Proposal[]
+  marketAnalyses MarketAnalysis[]
+  pliegoChat     PliegoChat?
+  proposalChat   ProposalChat?
 
   @@unique([companyId, opportunityId])
   @@map("opportunities")
 }
 
 model MarketAnalysis {
-  id                String      @id @default(uuid())
-  opportunityId     String
-  opportunity       Opportunity @relation(fields: [opportunityId], references: [id])
-  companyId         String
+  id            String      @id @default(uuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  companyId     String
 
   // Search parameters used
-  searchKeywords    String[]
-  articleCodes      String[]
+  searchKeywords String[]
+  articleCodes   String[]
 
   // Results
-  adjudicationsFound  Int         @default(0)
-  competitorsFound    Int         @default(0)
+  adjudicationsFound Int @default(0)
+  competitorsFound   Int @default(0)
 
   // Structured data
-  adjudications     Json          // Array of found historical adjudications
-  competitors       Json          // Map of competitor -> { wins, totalAmount, organisms }
-  priceRange        Json          // { min, max, average, median, currency }
+  adjudications Json // Array of found historical adjudications
+  competitors   Json // Map of competitor -> { wins, totalAmount, organisms }
+  priceRange    Json // { min, max, average, median, currency }
 
   // AI summary
-  summary           String?       // Claude market intelligence summary in Spanish
+  summary String? // Claude market intelligence summary in Spanish
 
-  analyzedAt        DateTime      @default(now())
+  analyzedAt DateTime @default(now())
 
   @@map("market_analyses")
 }
 
 model Proposal {
-  id              String      @id @default(uuid())
-  opportunityId   String
-  opportunity     Opportunity @relation(fields: [opportunityId], references: [id])
-  companyId       String
+  id            String      @id @default(uuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  companyId     String
 
   executiveSummary       String?
   valueProposition       String?
   relevantCapabilities   String?
   clarificationQuestions String?
   nextSteps              String?
-  fullText               String?   // Combined full proposal text
+  fullText               String? // Combined full proposal text
 
-  generatedAt     DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@map("proposals")
 }
@@ -249,24 +258,24 @@ enum OpportunityStatus {
 
 // Conversational chat scoped to one opportunity (and company): "Consultar pliego".
 model PliegoChat {
-  id            String        @id @default(uuid())
-  opportunityId String        @unique
-  opportunity   Opportunity   @relation(fields: [opportunityId], references: [id])
+  id            String      @id @default(uuid())
+  opportunityId String      @unique
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
   companyId     String
 
-  messages      ChatMessage[]
+  messages ChatMessage[]
 
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([opportunityId, companyId])
   @@map("pliego_chats")
 }
 
 model ChatMessage {
-  id        String      @id @default(uuid())
-  chatId    String
-  chat      PliegoChat  @relation(fields: [chatId], references: [id])
+  id     String     @id @default(uuid())
+  chatId String
+  chat   PliegoChat @relation(fields: [chatId], references: [id])
 
   role      MessageRole
   content   String      @db.Text
@@ -280,16 +289,46 @@ enum MessageRole {
   ASSISTANT
 }
 
+// Conversational chat scoped to one opportunity (and company) that edits the
+// proposal draft: "Asistente de propuesta". Distinct from PliegoChat, whose
+// answers are informational — here each turn returns an updated proposal text.
+model ProposalChat {
+  id            String      @id @default(uuid())
+  opportunityId String      @unique
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  companyId     String
+
+  messages ProposalChatMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([opportunityId, companyId])
+  @@map("proposal_chats")
+}
+
+model ProposalChatMessage {
+  id     String       @id @default(uuid())
+  chatId String
+  chat   ProposalChat @relation(fields: [chatId], references: [id])
+
+  role      MessageRole
+  content   String      @db.Text
+  createdAt DateTime    @default(now())
+
+  @@map("proposal_chat_messages")
+}
+
 model RawPublication {
-  id             String    @id @default(uuid())
-  runId          String
-  run            Run       @relation(fields: [runId], references: [id])
-  tenderId       String
-  rawRssItem     Json
-  normalized     Json?
-  filterResult   String?   // "keyword_rechazado" | "exclusion_rechazado" | "stage_gate_rechazado" | "duplicado" | "enviado_a_ia" | "guardado"
-  filterReason   String?
-  createdAt      DateTime  @default(now())
+  id           String   @id @default(uuid())
+  runId        String
+  run          Run      @relation(fields: [runId], references: [id])
+  tenderId     String
+  rawRssItem   Json
+  normalized   Json?
+  filterResult String? // "keyword_rechazado" | "exclusion_rechazado" | "stage_gate_rechazado" | "duplicado" | "enviado_a_ia" | "guardado"
+  filterReason String?
+  createdAt    DateTime @default(now())
 
   @@map("raw_publications")
 }
@@ -299,33 +338,33 @@ model RawPublication {
 // enter, even outside its current line of work. No keyword/category filter is
 // applied to these; the AI classifies every failure and only FUERA is dropped.
 model FailedTender {
-  id              String        @id @default(uuid())
-  companyId       String
-  company         CompanyConfig @relation(fields: [companyId], references: [id])
+  id        String        @id @default(uuid())
+  companyId String
+  company   CompanyConfig @relation(fields: [companyId], references: [id])
 
-  tenderId        String
-  failureId       String        // "arce-fail|{tenderId}"
-  failureType     FailureType
-  url             String
-  title           String
-  description     String?
-  objectDescription String?     // from <p class="buy-object"> on the detail page
-  organismo       String?
-  publicationDate DateTime?
+  tenderId          String
+  failureId         String // "arce-fail|{tenderId}"
+  failureType       FailureType
+  url               String
+  title             String
+  description       String?
+  objectDescription String? // from <p class="buy-object"> on the detail page
+  organismo         String?
+  publicationDate   DateTime?
 
-  articleCodes    String[]      // from the /mostrar-llamado/1 call view
-  tenderItems     Json?
+  articleCodes String[] // from the /mostrar-llamado/1 call view
+  tenderItems  Json?
 
   nicheCategory     NicheCategory @default(FUERA)
   fitScore          Int           @default(0)
   fitReason         String?
-  missingCapability String?       // what the company would lack (only if ADYACENTE)
+  missingCapability String? // what the company would lack (only if ADYACENTE)
 
-  nicheId         String?
-  niche           Niche?        @relation(fields: [nicheId], references: [id])
+  nicheId String?
+  niche   Niche?  @relation(fields: [nicheId], references: [id])
 
-  detectedAt      DateTime      @default(now())
-  createdAt       DateTime      @default(now())
+  detectedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
 
   @@unique([companyId, failureId])
   @@map("failed_tenders")
@@ -337,55 +376,55 @@ enum FailureType {
 }
 
 enum NicheCategory {
-  NUCLEO      // within what the company already does
-  ADYACENTE   // reachable with a reasonable stretch
-  FUERA       // a different line of work, distance too large
+  NUCLEO // within what the company already does
+  ADYACENTE // reachable with a reasonable stretch
+  FUERA // a different line of work, distance too large
 }
 
 // A niche groups repeated failures of the same organismo + article code into a
 // single addressable market signal.
 model Niche {
-  id                String         @id @default(uuid())
-  companyId         String
-  company           CompanyConfig  @relation(fields: [companyId], references: [id])
+  id        String        @id @default(uuid())
+  companyId String
+  company   CompanyConfig @relation(fields: [companyId], references: [id])
 
   organismo         String
   articleCode       String?
-  label             String         // e.g. "Mantenimiento de software · OSE"
-  objectDescription String?        // buy-object of the representative failure
+  label             String // e.g. "Mantenimiento de software · OSE"
+  objectDescription String? // buy-object of the representative failure
 
-  category          NicheCategory  @default(FUERA)
-  fitScore          Int            @default(0)
+  category          NicheCategory @default(FUERA)
+  fitScore          Int           @default(0)
   missingCapability String?
 
-  failureCount      Int            @default(0)
-  desiertaCount     Int            @default(0)
-  rechazadaCount    Int            @default(0)
+  failureCount   Int @default(0)
+  desiertaCount  Int @default(0)
+  rechazadaCount Int @default(0)
 
-  firstFailureAt    DateTime
-  lastFailureAt     DateTime
+  firstFailureAt DateTime
+  lastFailureAt  DateTime
 
-  signalStrength    SignalStrength @default(BAJA)
+  signalStrength SignalStrength @default(BAJA)
 
-  aiAnalysis        String?        // why it failed and how to enter
-  analyzedAt        DateTime?
+  aiAnalysis String? // why it failed and how to enter
+  analyzedAt DateTime?
 
-  status            NicheStatus    @default(NUEVO)
-  notes             String?
+  status NicheStatus @default(NUEVO)
+  notes  String?
 
-  failures          FailedTender[]
+  failures FailedTender[]
 
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([companyId, organismo, articleCode])
   @@map("niches")
 }
 
 enum SignalStrength {
-  ALTA      // 3+ failures, or 2+ with the last one within 12 months
-  MEDIA     // 2 failures
-  BAJA      // 1 failure
+  ALTA // 3+ failures, or 2+ with the last one within 12 months
+  MEDIA // 2 failures
+  BAJA // 1 failure
 }
 
 enum NicheStatus {

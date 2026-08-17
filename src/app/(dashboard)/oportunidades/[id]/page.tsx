@@ -20,7 +20,7 @@ import { getBusinessDaysUntilClosing, getUrgencyLevel } from '@/lib/urgency-util
 import { formatDateDMY, formatDateTime } from '@/lib/format'
 import { opportunityObjeto, opportunitySubtitle } from '@/lib/opportunity-labels'
 import { parseConditions } from '@/lib/conditions'
-import type { ProposalData } from '@/lib/actions/proposals'
+import type { ProposalBranding } from '@/lib/export/proposal-docx'
 import type { TenderItem } from '@/lib/scraper/arce-parser'
 import type {
   AdjudicationRecord,
@@ -92,7 +92,7 @@ export default async function OpportunityDetailPage({
       ? tabParam
       : 'detalle'
 
-  const [proposalRow, marketRow, chatRow] = await Promise.all([
+  const [proposalRow, marketRow, chatRow, proposalChatRow, companyProfile] = await Promise.all([
     prisma.proposal.findFirst({
       where: { opportunityId: opportunity.id, companyId: opportunity.companyId },
       orderBy: { updatedAt: 'desc' },
@@ -110,19 +110,40 @@ export default async function OpportunityDetailPage({
       },
       include: { messages: { orderBy: { createdAt: 'asc' } } },
     }),
+    prisma.proposalChat.findUnique({
+      where: {
+        opportunityId_companyId: {
+          opportunityId: opportunity.id,
+          companyId: opportunity.companyId,
+        },
+      },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
+    }),
+    prisma.companyProfile.findUnique({
+      where: { companyId: opportunity.companyId },
+      select: {
+        legalName: true,
+        logoUrl: true,
+        brandColorPrimary: true,
+        brandColorSecondary: true,
+      },
+    }),
   ])
 
   const chatMessages = chatRow?.messages ?? []
 
-  const savedProposal: ProposalData | null = proposalRow
-    ? {
-        executiveSummary: proposalRow.executiveSummary ?? '',
-        valueProposition: proposalRow.valueProposition ?? '',
-        relevantCapabilities: proposalRow.relevantCapabilities ?? '',
-        clarificationQuestions: proposalRow.clarificationQuestions ?? '',
-        nextSteps: proposalRow.nextSteps ?? '',
-      }
-    : null
+  const savedProposal: string | null = proposalRow?.fullText ?? null
+  const proposalChatMessages = (proposalChatRow?.messages ?? []).map((m) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+  }))
+  const proposalBranding: ProposalBranding = {
+    legalName: companyProfile?.legalName ?? null,
+    logoUrl: companyProfile?.logoUrl ?? null,
+    brandColorPrimary: companyProfile?.brandColorPrimary ?? null,
+    brandColorSecondary: companyProfile?.brandColorSecondary ?? null,
+  }
 
   const marketAnalysis: MarketAnalysisView | null = marketRow
     ? {
@@ -430,7 +451,9 @@ export default async function OpportunityDetailPage({
         <ProposalGenerator
           opportunityId={opportunity.id}
           opportunity={{ title: opportunity.title, organismo: opportunity.organismo ?? '' }}
+          branding={proposalBranding}
           savedProposal={savedProposal}
+          initialMessages={proposalChatMessages}
         />
       )}
     </div>
