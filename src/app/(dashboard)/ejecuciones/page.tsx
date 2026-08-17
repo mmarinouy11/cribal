@@ -65,7 +65,7 @@ export default async function RunsPage({
                 <Th>Items</Th>
                 <Th>Tras fecha</Th>
                 <Th>Tras keywords</Th>
-                <Th>Tras stage-gate</Th>
+                <Th>Tras filtro de etapa</Th>
                 <Th>Enviados a IA</Th>
                 <Th>Guardados</Th>
                 <Th>Duración</Th>

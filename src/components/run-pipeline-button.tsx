@@ -1,56 +1,78 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button, type ButtonVariant } from '@/components/ui/button'
+import type { ButtonVariant } from '@/components/ui/button'
 import { Toast, type ToastType } from '@/components/ui/toast'
 import { triggerRun } from '@/lib/actions/runs'
+import { cn } from '@/lib/cn'
+
+type RunState = 'idle' | 'running' | 'done'
 
 interface RunPipelineButtonProps {
   label?: string
+  // Kept for API compatibility; the button owns its own state-based styling.
   variant?: ButtonVariant
 }
 
-export function RunPipelineButton({
-  label = 'Correr pipeline ahora',
-  variant = 'primary',
-}: RunPipelineButtonProps) {
+const BASE_CLASS =
+  'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed'
+
+export function RunPipelineButton({ label = 'Correr la criba ahora' }: RunPipelineButtonProps) {
   const router = useRouter()
-  const [isPending, startTransition] = useTransition()
+  const [state, setState] = useState<RunState>('idle')
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null)
 
-  function handleClick() {
-    startTransition(async () => {
-      try {
-        const result = await triggerRun()
-        setToast({ message: result.message, type: 'success' })
-        // Give the background run a moment, then refresh server data.
-        setTimeout(() => router.refresh(), 1500)
-      } catch {
-        setToast({ message: 'No se pudo iniciar el pipeline', type: 'error' })
-      }
-    })
+  async function handleRun() {
+    if (state !== 'idle') return
+    setState('running')
+    try {
+      await triggerRun()
+      setState('done')
+      // Give the background run a moment, then refresh server data.
+      setTimeout(() => router.refresh(), 1500)
+      setTimeout(() => setState('idle'), 5000)
+    } catch {
+      setState('idle')
+      setToast({ message: 'No se pudo iniciar la criba', type: 'error' })
+    }
   }
+
+  const stateClass =
+    state === 'done'
+      ? 'bg-[#10b981]'
+      : state === 'running'
+        ? 'bg-[#06b6d4] opacity-60'
+        : 'bg-[#06b6d4] hover:bg-[#0891b2] active:scale-[0.98]'
 
   return (
     <>
-      <Button variant={variant} onClick={handleClick} disabled={isPending}>
-        {isPending ? (
-          'Iniciando…'
-        ) : (
+      <button
+        type="button"
+        onClick={handleRun}
+        disabled={state !== 'idle'}
+        className={cn(BASE_CLASS, stateClass)}
+      >
+        {state === 'running' && (
+          <>
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            Ejecutando…
+          </>
+        )}
+        {state === 'done' && (
+          <>
+            <i className="ti ti-check" aria-hidden />
+            Criba iniciada
+          </>
+        )}
+        {state === 'idle' && (
           <>
             <i className="ti ti-player-play" aria-hidden />
             {label}
           </>
         )}
-      </Button>
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
+      </button>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </>
   )
 }

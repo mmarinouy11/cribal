@@ -74,7 +74,7 @@ export function OpportunitiesFilters() {
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col text-xs font-medium text-[#6b7280]">
-          Score mínimo
+          Puntaje mínimo
           <select
             value={minScore}
             onChange={(e) =>

@@ -12,6 +12,7 @@ export const STATUS_META: Record<OpportunityStatus, StatusMeta> = {
   NUEVA: { label: 'Nueva', className: 'bg-transparent text-[#0e7490] border border-[#06b6d4]' },
   REVISANDO: { label: 'Revisando', className: 'bg-[#fef9c3] text-[#854d0e]' },
   RELEVANTE: { label: 'Relevante', className: 'bg-[#d1fae5] text-[#065f46]' },
+  OFERTADA: { label: 'Ofertada', className: 'bg-[#dbeafe] text-[#1e40af]' },
   DESCARTADA: { label: 'Descartada', className: 'bg-[#f1f5f9] text-[#94a3b8]' },
   CONTACTADA: { label: 'Contactada', className: 'bg-[#ede9fe] text-[#5b21b6]' },
   NO_FIT: { label: 'No aplica', className: 'bg-[#fee2e2] text-[#991b1b]' },

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { OpportunityStatus, RunStatus, NicheStatus, SignalStrength } from '@prisma/client'
+import { OpportunityStatus, RunStatus, NicheStatus } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
 import { Card } from '@/components/ui/card'
@@ -17,6 +17,7 @@ import { RunPipelineButton } from '@/components/run-pipeline-button'
 import { OnboardingBanner } from '@/components/onboarding-banner'
 import { ClosingTimeline } from '@/components/dashboard/closing-timeline'
 import { getUrgentOpportunities, getBusinessDaysUntilClosing } from '@/lib/pipeline/urgency'
+import { computeNicheScore } from '@/lib/niche-score'
 import { daysUntilNextRun } from '@/lib/cadence'
 import { startOfToday, addDays } from '@/lib/dates'
 import { cn } from '@/lib/cn'
@@ -42,6 +43,7 @@ function MetricCard({
   valueClassName,
   label,
   extra,
+  href,
 }: {
   icon: string
   iconColor: string
@@ -50,9 +52,10 @@ function MetricCard({
   valueClassName?: string
   label: string
   extra?: ReactNode
+  href?: string
 }) {
-  return (
-    <Card>
+  const card = (
+    <Card className={cn('h-full', href && 'cursor-pointer transition-shadow hover:shadow-md')}>
       <div className="p-5">
         <div className={cn('flex h-10 w-10 items-center justify-center rounded-[10px]', iconBg)}>
           <i className={cn('ti', icon, 'text-xl', iconColor)} aria-hidden />
@@ -69,6 +72,14 @@ function MetricCard({
         {extra}
       </div>
     </Card>
+  )
+
+  return href ? (
+    <Link href={href} className="block h-full">
+      {card}
+    </Link>
+  ) : (
+    card
   )
 }
 
@@ -90,7 +101,7 @@ export default async function DashboardPage() {
     timelineOpportunities,
     urgentAll,
     nichesActiveCount,
-    highSignalNiches,
+    activeNiches,
   ] = await Promise.all([
     prisma.opportunity.count({
       where: { companyId, status: { notIn: INACTIVE_STATUSES } },
@@ -142,20 +153,25 @@ export default async function DashboardPage() {
     prisma.niche.findMany({
       where: {
         companyId,
-        signalStrength: SignalStrength.ALTA,
         status: { notIn: [NicheStatus.DESCARTADO, NicheStatus.ARCHIVADO] },
       },
-      orderBy: { lastFailureAt: 'desc' },
-      take: 3,
       select: {
         id: true,
         label: true,
         category: true,
         failureCount: true,
         lastFailureAt: true,
+        fitScore: true,
       },
     }),
   ])
+
+  // Top niches by puntaje (0-10 combining fit + recurrence + recency).
+  const topNiches = activeNiches
+    .map((niche) => ({ ...niche, score: computeNicheScore(niche) }))
+    .filter((niche) => niche.score >= 8)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
 
   // Timeline items are guaranteed to have a closing date by the query filter.
   const timelineItems = timelineOpportunities
@@ -200,7 +216,7 @@ export default async function DashboardPage() {
 
       <header className="flex items-start justify-between">
         <div>
-          <h1 className="text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">Dashboard</h1>
+          <h1 className="text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">Tablero</h1>
           <p className="text-[13px] text-[#94a3b8]">
             {session.user.companyName} · {formatSpanishDate(new Date())}
           </p>
@@ -223,6 +239,7 @@ export default async function DashboardPage() {
           iconBg="bg-[#e0f2fe]"
           value={activeCount}
           label="Oportunidades activas"
+          href="/oportunidades?estado=activas"
         />
         <MetricCard
           icon="ti-sparkles"
@@ -230,6 +247,7 @@ export default async function DashboardPage() {
           iconBg="bg-[#ede9fe]"
           value={newThisWeek}
           label="Nuevas esta semana"
+          href="/oportunidades?estado=NUEVA"
         />
         <MetricCard
           icon="ti-star"
@@ -237,6 +255,7 @@ export default async function DashboardPage() {
           iconBg="bg-[#fef3c7]"
           value={highlyRelevant}
           label="Muy relevantes"
+          href="/oportunidades?minScore=8"
         />
         <MetricCard
           icon="ti-clock"
@@ -245,6 +264,7 @@ export default async function DashboardPage() {
           value={lastRunValue}
           valueClassName="text-lg font-semibold leading-tight"
           label="Última ejecución"
+          href="/ejecuciones"
           extra={
             <div className="mt-1.5 space-y-1">
               {nextRunLabel && (
@@ -264,6 +284,7 @@ export default async function DashboardPage() {
           iconBg="bg-[#fee2e2]"
           value={closingThisWeekCount}
           label="Cierran esta semana"
+          href="/oportunidades?cierranEstaSemana=true"
         />
         <MetricCard
           icon="ti-bulb"
@@ -271,6 +292,7 @@ export default async function DashboardPage() {
           iconBg="bg-[#ede9fe]"
           value={nichesActiveCount}
           label="Nichos detectados"
+          href="/nichos"
         />
       </section>
 
@@ -297,7 +319,7 @@ export default async function DashboardPage() {
                         {businessDays === 1 ? '' : 'ES'}
                       </p>
                       <p className="mt-0.5 text-xs text-[#6b7280]">
-                        {opp.organismo ?? '—'} · {formatDateTime(opp.closingDate)} · Score{' '}
+                        {opp.organismo ?? '—'} · {formatDateTime(opp.closingDate)} · Puntaje{' '}
                         {opp.score}
                       </p>
                     </div>
@@ -315,19 +337,19 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {highSignalNiches.length > 0 && (
+      {topNiches.length > 0 && (
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.4px] text-[#8b5cf6]">
               <i className="ti ti-bulb" aria-hidden />
-              Nichos de alta señal
+              Nichos destacados
             </h2>
             <Link href="/nichos" className="text-[13px] text-[#06b6d4] hover:underline">
               Ver todos los nichos →
             </Link>
           </div>
           <Card className="divide-y divide-[#e0f2fe]">
-            {highSignalNiches.map((niche) => (
+            {topNiches.map((niche) => (
               <div key={niche.id} className="flex items-center justify-between gap-3 px-5 py-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="min-w-0 truncate font-medium text-[#0c1e3c]">
@@ -337,8 +359,8 @@ export default async function DashboardPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-4 text-xs text-[#6b7280]">
                   <span>
-                    {niche.failureCount} fallo{niche.failureCount === 1 ? '' : 's'} ·{' '}
-                    {formatRelativeTime(niche.lastFailureAt)}
+                    Puntaje {niche.score}/10 · {niche.failureCount} fallo
+                    {niche.failureCount === 1 ? '' : 's'} · {formatRelativeTime(niche.lastFailureAt)}
                   </span>
                   <Link
                     href={`/nichos/${niche.id}`}
@@ -364,7 +386,7 @@ export default async function DashboardPage() {
         </div>
         {recentOpportunities.length === 0 ? (
           <p className="px-5 py-8 text-center text-sm text-[#6b7280]">
-            Todavía no hay oportunidades. Corré el pipeline para empezar.
+            Todavía no hay oportunidades. Corré la criba para empezar.
           </p>
         ) : (
           <Table>
@@ -374,7 +396,7 @@ export default async function DashboardPage() {
                 <Th>Organismo</Th>
                 <Th>Título</Th>
                 <Th>Categoría</Th>
-                <Th>Score</Th>
+                <Th>Puntaje</Th>
                 <Th>Estado</Th>
               </Tr>
             </THead>

@@ -1,13 +1,15 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
-import type { Prisma } from '@prisma/client'
+import type { OpportunityStatus, Prisma } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
 import { Card, CardBody } from '@/components/ui/card'
 import { CategoryBadge } from '@/components/ui/category-badge'
 import { Badge } from '@/components/ui/badge'
 import { buttonClass } from '@/components/ui/button-styles'
-import { ReviewPanel } from '@/components/review-panel'
+import { OpportunityActions } from '@/components/opportunity/opportunity-actions'
+import { LicitacionTimeline } from '@/components/opportunity/licitacion-timeline'
+import { ConditionsPanel } from '@/components/opportunity/conditions-panel'
 import { ProposalGenerator } from '@/components/proposal/proposal-generator'
 import { DetailTabs, type DetailTab } from '@/components/opportunity/detail-tabs'
 import { EnrichButton } from '@/components/opportunity/enrich-button'
@@ -16,7 +18,9 @@ import { PliegoChat } from '@/components/opportunity/pliego-chat'
 import { scoreColorClass } from '@/components/ui/score-badge'
 import { getBusinessDaysUntilClosing, getUrgencyLevel } from '@/lib/urgency-utils'
 import { formatDateDMY, formatDateTime } from '@/lib/format'
-import type { ProposalData } from '@/lib/actions/proposals'
+import { opportunityObjeto, opportunitySubtitle } from '@/lib/opportunity-labels'
+import { parseConditions } from '@/lib/conditions'
+import type { ProposalBranding } from '@/lib/export/proposal-docx'
 import type { TenderItem } from '@/lib/scraper/arce-parser'
 import type {
   AdjudicationRecord,
@@ -88,7 +92,7 @@ export default async function OpportunityDetailPage({
       ? tabParam
       : 'detalle'
 
-  const [proposalRow, marketRow, chatRow] = await Promise.all([
+  const [proposalRow, marketRow, chatRow, proposalChatRow, companyProfile] = await Promise.all([
     prisma.proposal.findFirst({
       where: { opportunityId: opportunity.id, companyId: opportunity.companyId },
       orderBy: { updatedAt: 'desc' },
@@ -106,19 +110,40 @@ export default async function OpportunityDetailPage({
       },
       include: { messages: { orderBy: { createdAt: 'asc' } } },
     }),
+    prisma.proposalChat.findUnique({
+      where: {
+        opportunityId_companyId: {
+          opportunityId: opportunity.id,
+          companyId: opportunity.companyId,
+        },
+      },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
+    }),
+    prisma.companyProfile.findUnique({
+      where: { companyId: opportunity.companyId },
+      select: {
+        legalName: true,
+        logoUrl: true,
+        brandColorPrimary: true,
+        brandColorSecondary: true,
+      },
+    }),
   ])
 
   const chatMessages = chatRow?.messages ?? []
 
-  const savedProposal: ProposalData | null = proposalRow
-    ? {
-        executiveSummary: proposalRow.executiveSummary ?? '',
-        valueProposition: proposalRow.valueProposition ?? '',
-        relevantCapabilities: proposalRow.relevantCapabilities ?? '',
-        clarificationQuestions: proposalRow.clarificationQuestions ?? '',
-        nextSteps: proposalRow.nextSteps ?? '',
-      }
-    : null
+  const savedProposal: string | null = proposalRow?.fullText ?? null
+  const proposalChatMessages = (proposalChatRow?.messages ?? []).map((m) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+  }))
+  const proposalBranding: ProposalBranding = {
+    legalName: companyProfile?.legalName ?? null,
+    logoUrl: companyProfile?.logoUrl ?? null,
+    brandColorPrimary: companyProfile?.brandColorPrimary ?? null,
+    brandColorSecondary: companyProfile?.brandColorSecondary ?? null,
+  }
 
   const marketAnalysis: MarketAnalysisView | null = marketRow
     ? {
@@ -131,12 +156,12 @@ export default async function OpportunityDetailPage({
     : null
 
   const scoreWidth = `${Math.max(0, Math.min(10, opportunity.score)) * 10}%`
-  const rawOutput = opportunity.aiRawOutput
-    ? JSON.stringify(opportunity.aiRawOutput, null, 2)
-    : null
-  const followUp = opportunity.nextFollowUpDate
-    ? new Date(opportunity.nextFollowUpDate).toISOString().slice(0, 10)
-    : null
+  const closingHasPassed =
+    opportunity.closingDate !== null && opportunity.closingDate.getTime() < Date.now()
+  // The visual timeline is only shown while the opportunity is being worked.
+  const showTimeline = (['REVISANDO', 'RELEVANTE', 'OFERTADA'] as OpportunityStatus[]).includes(
+    opportunity.status
+  )
 
   const items = tenderItemsFromJson(opportunity.tenderItems)
   const businessDays = opportunity.closingDate
@@ -156,12 +181,24 @@ export default async function OpportunityDetailPage({
       <DetailTabs opportunityId={opportunity.id} active={tab} chatCount={chatMessages.length} />
 
       {tab === 'detalle' && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Left column — tender information */}
-          <div className="space-y-6 lg:col-span-2">
+        <div className="space-y-6">
+          <OpportunityActions
+            id={opportunity.id}
+            status={opportunity.status}
+            closingHasPassed={closingHasPassed}
+          />
+
+          <div className="space-y-6">
             <Card>
               <CardBody className="space-y-4">
-                <h1 className="text-xl font-bold text-[#0c1e3c]">{opportunity.title}</h1>
+                <div>
+                  <h1 className="text-xl font-bold text-[#0c1e3c]">
+                    {opportunityObjeto(opportunity, 160)}
+                  </h1>
+                  <p className="mt-1 text-sm text-[#6b7280]">
+                    {opportunitySubtitle(opportunity)}
+                  </p>
+                </div>
 
                 <div className="flex flex-wrap gap-2">
                   <a
@@ -176,8 +213,6 @@ export default async function OpportunityDetailPage({
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 border-t border-[#e0f2fe] pt-4">
-                  <MetaItem label="Organismo" value={opportunity.organismo ?? '—'} />
-                  <MetaItem label="Tipo de llamado" value={opportunity.tenderType ?? '—'} />
                   <MetaItem
                     label="Fecha de publicación"
                     value={formatDateDMY(opportunity.publicationDate)}
@@ -198,40 +233,65 @@ export default async function OpportunityDetailPage({
               </CardBody>
             </Card>
 
-            {/* Enriched key dates */}
-            {opportunity.enrichedAt && (
+            {/* Key dates — visual timeline while the opportunity is being worked,
+                compact list otherwise. */}
+            {showTimeline ? (
               <Card>
                 <CardBody>
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="font-semibold text-[#0c1e3c]">📅 Fechas clave</h3>
-                    {urgencyBadge && (
-                      <Badge className={urgencyBadge.className}>{urgencyBadge.label}</Badge>
-                    )}
-                  </div>
-                  <DateRow
-                    label="Recepción de ofertas"
-                    value={
-                      opportunity.closingDate
-                        ? `${formatDateTime(opportunity.closingDate)}${
-                            businessDays !== null ? ` · ${businessDays} día(s) hábil(es)` : ''
-                          }`
-                        : '—'
-                    }
-                  />
-                  <DateRow label="Acto de apertura" value={formatDateTime(opportunity.openingDate)} />
-                  <DateRow label="Prórrogas hasta" value={formatDateTime(opportunity.prorrogasDate)} />
-                  <DateRow
-                    label="Aclaraciones hasta"
-                    value={formatDateTime(opportunity.clarificationsDate)}
-                  />
-                  {opportunity.isElectronic !== null && (
-                    <DateRow
-                      label="Apertura electrónica"
-                      value={opportunity.isElectronic ? 'Sí' : 'No'}
+                  <h3 className="mb-4 font-semibold text-[#0c1e3c]">Línea de tiempo</h3>
+                  {opportunity.enrichedAt ? (
+                    <LicitacionTimeline
+                      publicationDate={opportunity.publicationDate}
+                      clarificationsDate={opportunity.clarificationsDate}
+                      prorrogasDate={opportunity.prorrogasDate}
+                      closingDate={opportunity.closingDate}
+                      openingDate={opportunity.openingDate}
                     />
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <p className="text-sm text-[#6b7280]">
+                        Datos del llamado no disponibles aún.
+                      </p>
+                      <EnrichButton opportunityId={opportunity.id} />
+                    </div>
                   )}
                 </CardBody>
               </Card>
+            ) : (
+              opportunity.enrichedAt && (
+                <Card>
+                  <CardBody>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="font-semibold text-[#0c1e3c]">Fechas clave</h3>
+                      {urgencyBadge && (
+                        <Badge className={urgencyBadge.className}>{urgencyBadge.label}</Badge>
+                      )}
+                    </div>
+                    <DateRow
+                      label="Recepción de ofertas"
+                      value={
+                        opportunity.closingDate
+                          ? `${formatDateTime(opportunity.closingDate)}${
+                              businessDays !== null ? ` · ${businessDays} día(s) hábil(es)` : ''
+                            }`
+                          : '—'
+                      }
+                    />
+                    <DateRow label="Acto de apertura" value={formatDateTime(opportunity.openingDate)} />
+                    <DateRow label="Prórrogas hasta" value={formatDateTime(opportunity.prorrogasDate)} />
+                    <DateRow
+                      label="Aclaraciones hasta"
+                      value={formatDateTime(opportunity.clarificationsDate)}
+                    />
+                    {opportunity.isElectronic !== null && (
+                      <DateRow
+                        label="Apertura electrónica"
+                        value={opportunity.isElectronic ? 'Sí' : 'No'}
+                      />
+                    )}
+                  </CardBody>
+                </Card>
+              )
             )}
 
             {/* Tender items */}
@@ -298,7 +358,7 @@ export default async function OpportunityDetailPage({
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wide text-[#6b7280]">
-                      Score IA
+                      Puntaje IA
                     </div>
                     <div className="mt-1 flex items-baseline gap-2">
                       <span
@@ -334,6 +394,11 @@ export default async function OpportunityDetailPage({
               </CardBody>
             </Card>
 
+            <ConditionsPanel
+              opportunityId={opportunity.id}
+              analysis={parseConditions(opportunity.conditionsAnalysis)}
+            />
+
             {opportunity.description && (
               <Card>
                 <CardBody>
@@ -348,38 +413,6 @@ export default async function OpportunityDetailPage({
                 </CardBody>
               </Card>
             )}
-
-            {rawOutput && (
-              <Card>
-                <CardBody>
-                  <details>
-                    <summary className="cursor-pointer text-sm font-semibold text-[#0c1e3c]">
-                      Salida cruda de la IA (debug)
-                    </summary>
-                    <pre className="mt-3 overflow-x-auto rounded-lg bg-[#0c1e3c] p-4 text-xs text-white">
-                      {rawOutput}
-                    </pre>
-                  </details>
-                </CardBody>
-              </Card>
-            )}
-          </div>
-
-          {/* Right column — review panel */}
-          <div className="space-y-4">
-            <Card>
-              <CardBody>
-                <h2 className="mb-4 font-semibold text-[#0c1e3c]">Revisión</h2>
-                <ReviewPanel
-                  id={opportunity.id}
-                  status={opportunity.status}
-                  owner={opportunity.owner}
-                  nextAction={opportunity.nextAction}
-                  nextFollowUpDate={followUp}
-                  notes={opportunity.notes}
-                />
-              </CardBody>
-            </Card>
 
             <Card>
               <CardBody className="space-y-2 text-sm text-[#6b7280]">
@@ -418,7 +451,9 @@ export default async function OpportunityDetailPage({
         <ProposalGenerator
           opportunityId={opportunity.id}
           opportunity={{ title: opportunity.title, organismo: opportunity.organismo ?? '' }}
+          branding={proposalBranding}
           savedProposal={savedProposal}
+          initialMessages={proposalChatMessages}
         />
       )}
     </div>

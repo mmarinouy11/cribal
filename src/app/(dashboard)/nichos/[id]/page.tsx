@@ -8,11 +8,11 @@ import { NicheStatusSelect } from '@/components/niche/niche-status-select'
 import { NicheAnalyzeButton } from '@/components/niche/niche-analyze-button'
 import { NicheNotes } from '@/components/niche/niche-notes'
 import {
-  SignalBadge,
   NicheCategoryBadge,
   FailureTypeTag,
   labelBuiltFromObject,
 } from '@/components/niche/niche-badges'
+import { computeNicheScore } from '@/lib/niche-score'
 import { formatDateDMY, formatRelativeTime } from '@/lib/format'
 
 /** Minimal markdown: **bold** inline + line breaks. */
@@ -54,9 +54,10 @@ export default async function NicheDetailPage({ params }: { params: { id: string
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <SignalBadge signal={niche.signalStrength} />
             <NicheCategoryBadge category={niche.category} />
-            <span className="text-sm font-semibold text-[#0c1e3c]">Encaje {niche.fitScore}/10</span>
+            <span className="text-sm font-semibold text-[#0c1e3c]">
+              Puntaje {computeNicheScore(niche)}/10
+            </span>
           </div>
           <h1 className="mt-2 text-[22px] font-semibold tracking-[-0.3px] text-[#0c1e3c]">
             {niche.label}

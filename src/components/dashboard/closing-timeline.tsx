@@ -76,7 +76,7 @@ export function ClosingTimeline({ opportunities }: ClosingTimelineProps) {
     <div className="rounded-xl border border-[#e0f2fe] bg-white p-5 shadow-sm">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-[13px] font-semibold uppercase tracking-[0.4px] text-[#0c1e3c]">
-          Timeline de cierres
+          Línea de tiempo de cierres
         </h2>
         <div className="flex flex-wrap gap-3">
           {legend.map((item) => (

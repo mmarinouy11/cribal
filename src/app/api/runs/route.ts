@@ -28,7 +28,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       const message = error instanceof Error ? error.message : String(error)
       console.error(`[CRIBAL][CRON] Error en pipeline: ${message}`)
     })
-    return NextResponse.json({ message: 'Pipeline iniciado para todas las empresas' })
+    return NextResponse.json({ message: 'Criba iniciada para todas las empresas' })
   }
 
   // 2. Session.
@@ -56,7 +56,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     console.error(`[CRIBAL][API] Error en pipeline (companyId=${companyId}): ${message}`)
   })
 
-  return NextResponse.json({ message: 'Pipeline iniciado', companyId })
+  return NextResponse.json({ message: 'Criba iniciada', companyId })
 }
 
 /**

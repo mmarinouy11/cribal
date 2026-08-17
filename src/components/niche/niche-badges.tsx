@@ -1,4 +1,4 @@
-import { NicheCategory, NicheStatus, SignalStrength, FailureType } from '@prisma/client'
+import { NicheCategory, NicheStatus, FailureType } from '@prisma/client'
 import { cn } from '@/lib/cn'
 
 /**
@@ -10,54 +10,6 @@ import { cn } from '@/lib/cn'
  */
 export function labelBuiltFromObject(niche: { objectDescription: string | null }): boolean {
   return Boolean(niche.objectDescription?.trim())
-}
-
-// ---------------------------------------------------------------------------
-// Signal strength
-// ---------------------------------------------------------------------------
-
-interface SignalMeta {
-  label: string
-  badgeClassName: string
-  borderColor: string
-}
-
-export const SIGNAL_META: Record<SignalStrength, SignalMeta> = {
-  ALTA: {
-    label: 'Alta señal',
-    badgeClassName: 'bg-[#fee2e2] text-[#dc2626]',
-    borderColor: '#dc2626',
-  },
-  MEDIA: {
-    label: 'Media señal',
-    badgeClassName: 'bg-[#fef3c7] text-[#b45309]',
-    borderColor: '#f59e0b',
-  },
-  BAJA: {
-    label: 'Baja señal',
-    badgeClassName: 'bg-[#f1f5f9] text-[#64748b]',
-    borderColor: '#94a3b8',
-  },
-}
-
-export const SIGNAL_OPTIONS: { value: SignalStrength; label: string }[] = [
-  { value: SignalStrength.ALTA, label: 'Alta' },
-  { value: SignalStrength.MEDIA, label: 'Media' },
-  { value: SignalStrength.BAJA, label: 'Baja' },
-]
-
-export function SignalBadge({ signal }: { signal: SignalStrength }) {
-  const meta = SIGNAL_META[signal]
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide',
-        meta.badgeClassName
-      )}
-    >
-      {meta.label}
-    </span>
-  )
 }
 
 // ---------------------------------------------------------------------------
