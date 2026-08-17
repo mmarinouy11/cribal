@@ -295,19 +295,38 @@ export async function updateCompanyConfig(data: CompanyConfigInput): Promise<voi
 }
 
 export interface CompanyProfileInput {
+  // Identity / branding
+  legalName?: string
+  rut?: string
+  isPyme?: boolean
+  logoUrl?: string
+  brandColorPrimary?: string
+  brandColorSecondary?: string
+  // Description
   longDescription?: string
   founded?: string
   teamSize?: string
+  // Capabilities & services
   caseStudies?: string
   certifications?: string
   differentiators?: string
+  // Proposals
   proposalTemplate?: string
+  // Fields stored on CompanyConfig but edited on the "Mi empresa" page
+  capabilities?: string[]
+  relevantKeywords?: string[]
 }
 
 export async function updateCompanyProfile(data: CompanyProfileInput): Promise<void> {
   const companyId = await requireCompanyId()
 
   const fields = {
+    legalName: data.legalName || null,
+    rut: data.rut || null,
+    isPyme: data.isPyme ?? false,
+    logoUrl: data.logoUrl || null,
+    brandColorPrimary: data.brandColorPrimary || null,
+    brandColorSecondary: data.brandColorSecondary || null,
     longDescription: data.longDescription || null,
     founded: data.founded || null,
     teamSize: data.teamSize || null,
@@ -323,7 +342,17 @@ export async function updateCompanyProfile(data: CompanyProfileInput): Promise<v
     update: fields,
   })
 
+  // Capabilities and relevant keywords live on CompanyConfig but are edited here.
+  const configData: Prisma.CompanyConfigUpdateInput = {}
+  if (data.capabilities !== undefined) configData.capabilities = data.capabilities
+  if (data.relevantKeywords !== undefined) configData.relevantKeywords = data.relevantKeywords
+  if (Object.keys(configData).length > 0) {
+    await prisma.companyConfig.update({ where: { id: companyId }, data: configData })
+  }
+
   revalidatePath('/perfil')
+  revalidatePath('/configuracion')
+  revalidatePath('/')
 }
 
 export interface FeedTestResult {
