@@ -24,8 +24,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/oportunidades', label: 'Oportunidades', icon: 'ti-target' },
   { href: '/nichos', label: 'Nichos', icon: 'ti-bulb' },
   { href: '/ejecuciones', label: 'Ejecuciones', icon: 'ti-player-play' },
-  { href: '/perfil', label: 'Perfil', icon: 'ti-building' },
-  { href: '/configuracion', label: 'Configuración', icon: 'ti-settings' },
+  { href: '/perfil', label: 'Mi empresa', icon: 'ti-building' },
+  { href: '/configuracion', label: 'Configuración del sistema', icon: 'ti-settings' },
 ]
 
 const ADMIN_NAV_ITEM: NavItem = { href: '/admin', label: 'Admin', icon: 'ti-shield' }
