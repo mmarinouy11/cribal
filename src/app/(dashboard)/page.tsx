@@ -225,7 +225,7 @@ export default async function DashboardPage() {
           <RunPipelineButton />
           <Link
             href="/oportunidades"
-            className="text-[13px] font-medium text-[#06b6d4] hover:underline"
+            className="text-xs font-medium text-[#06b6d4] hover:underline"
           >
             Ver todas las oportunidades →
           </Link>
@@ -300,8 +300,8 @@ export default async function DashboardPage() {
 
       {urgentOpportunities.length > 0 && (
         <section className="space-y-3">
-          <h2 className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.4px] text-[#dc2626]">
-            <i className="ti ti-alert-triangle" aria-hidden />
+          <h2 className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.6px] text-[#94a3b8]">
+            <i className="ti ti-alert-triangle text-sm text-[#dc2626]" aria-hidden />
             Atención requerida
           </h2>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -313,12 +313,12 @@ export default async function DashboardPage() {
                 <div key={opp.id} className="rounded-xl border border-red-100 bg-red-50 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-medium text-[#0c1e3c]">{truncate(opp.title, 60)}</p>
-                      <p className="mt-0.5 text-sm font-semibold text-[#dc2626]">
+                      <p className="text-sm font-medium text-[#0c1e3c]">{truncate(opp.title, 60)}</p>
+                      <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.4px] text-[#dc2626]">
                         CIERRA EN {businessDays} DÍA{businessDays === 1 ? '' : 'S'} HÁBIL
                         {businessDays === 1 ? '' : 'ES'}
                       </p>
-                      <p className="mt-0.5 text-xs text-[#6b7280]">
+                      <p className="mt-0.5 text-xs text-[#94a3b8]">
                         {opp.organismo ?? '—'} · {formatDateTime(opp.closingDate)} · Puntaje{' '}
                         {opp.score}
                       </p>
@@ -340,11 +340,11 @@ export default async function DashboardPage() {
       {topNiches.length > 0 && (
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.4px] text-[#8b5cf6]">
-              <i className="ti ti-bulb" aria-hidden />
+            <h2 className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.6px] text-[#94a3b8]">
+              <i className="ti ti-bulb text-sm" aria-hidden />
               Nichos destacados
             </h2>
-            <Link href="/nichos" className="text-[13px] text-[#06b6d4] hover:underline">
+            <Link href="/nichos" className="text-xs text-[#06b6d4] hover:underline">
               Ver todos los nichos →
             </Link>
           </div>
@@ -352,12 +352,12 @@ export default async function DashboardPage() {
             {topNiches.map((niche) => (
               <div key={niche.id} className="flex items-center justify-between gap-3 px-5 py-3">
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="min-w-0 truncate font-medium text-[#0c1e3c]">
+                  <span className="min-w-0 truncate text-sm font-medium text-[#0c1e3c]">
                     {niche.label}
                   </span>
                   <NicheCategoryBadge category={niche.category} />
                 </div>
-                <div className="flex shrink-0 items-center gap-4 text-xs text-[#6b7280]">
+                <div className="flex shrink-0 items-center gap-4 text-xs text-[#94a3b8]">
                   <span>
                     Puntaje {niche.score}/10 · {niche.failureCount} fallo
                     {niche.failureCount === 1 ? '' : 's'} · {formatRelativeTime(niche.lastFailureAt)}
@@ -380,7 +380,7 @@ export default async function DashboardPage() {
           <h2 className="text-[13px] font-semibold uppercase tracking-[0.4px] text-[#0c1e3c]">
             Oportunidades recientes
           </h2>
-          <Link href="/oportunidades" className="text-[13px] text-[#06b6d4] hover:underline">
+          <Link href="/oportunidades" className="text-xs text-[#06b6d4] hover:underline">
             Ver todas →
           </Link>
         </div>

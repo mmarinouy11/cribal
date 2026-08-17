@@ -75,12 +75,12 @@ export function ClosingTimeline({ opportunities }: ClosingTimelineProps) {
   return (
     <div className="rounded-xl border border-[#e0f2fe] bg-white p-5 shadow-sm">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-[13px] font-semibold uppercase tracking-[0.4px] text-[#0c1e3c]">
+        <h2 className="text-[11px] font-medium uppercase tracking-[0.6px] text-[#94a3b8]">
           Línea de tiempo de cierres
         </h2>
         <div className="flex flex-wrap gap-3">
           {legend.map((item) => (
-            <span key={item.label} className="flex items-center gap-1 text-xs text-[#6b7280]">
+            <span key={item.label} className="flex items-center gap-1 text-[11px] text-[#94a3b8]">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-full"
                 style={{ backgroundColor: item.color }}
