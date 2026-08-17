@@ -9,6 +9,8 @@ import { LogoMark } from '@/components/ui/logo'
 import { registerCompany } from '@/lib/actions/auth'
 import { generateCompanyConfig, type GeneratedCompanyConfig } from '@/lib/actions/config'
 import { lookupCompany } from '@/lib/actions/company-lookup'
+import { ValidationStep } from '@/components/register/validation-step'
+import { feedToLabel } from '@/lib/arce/catalog'
 
 const COUNTRIES = [
   'Uruguay',
@@ -21,7 +23,8 @@ const COUNTRIES = [
   'Estados Unidos',
   'Otro',
 ]
-const STEP_LABELS = ['Tu empresa', 'Tu cuenta', 'Qué buscás']
+const STEP_LABELS = ['Tu empresa', 'Tu cuenta', 'Qué buscás', 'Validá tu config', 'Resumen']
+const LAST_STEP = STEP_LABELS.length - 1 // summary step index
 
 /** Split a free-text capabilities field into a trimmed list. */
 function capabilitiesToList(text: string): string[] {
@@ -34,25 +37,6 @@ function capabilitiesToList(text: string): string[] {
 const inputClass =
   'w-full rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c] outline-none focus:border-[#06b6d4] focus:ring-1 focus:ring-[#06b6d4]'
 const labelClass = 'mb-1 block text-sm font-medium text-[#0c1e3c]'
-
-/** Human-readable label for an ARCE RSS feed URL. */
-function feedLabel(url: string): string {
-  const familia = url.match(/\/familia\/(\d+)/)
-  if (familia) {
-    const names: Record<string, string> = {
-      '1': 'Familia 1 — Obras',
-      '2': 'Familia 2 — Bienes',
-      '3': 'Familia 3 — Servicios no personales',
-      '4': 'Familia 4 — Servicios personales',
-      '5': 'Familia 5 — Arrendamientos',
-      '10': 'Familia 10 — TIC',
-    }
-    return names[familia[1]] ?? `Familia ${familia[1]}`
-  }
-  const texto = url.match(/\/texto\/([^/]+)/)
-  if (texto) return `Búsqueda: "${decodeURIComponent(texto[1])}"`
-  return url
-}
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -78,6 +62,17 @@ export default function RegisterPage() {
   const [generating, setGenerating] = useState(false)
   const [configError, setConfigError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  // Step 4 (validation)
+  const [appliedExclusions, setAppliedExclusions] = useState<string[]>([])
+
+  const EMPTY_CONFIG: GeneratedCompanyConfig = {
+    relevantKeywords: [],
+    excludedKeywords: [],
+    excludedProducts: [],
+    rssFeeds: [],
+    minimumScore: 7,
+    reasoning: '',
+  }
 
   function buildDescription(): string {
     const suffix = country ? `(País: ${country})` : ''
@@ -160,13 +155,28 @@ export default function RegisterPage() {
       // Auto-generate the configuration when reaching Step 3.
       if (!config && !generating) void runGeneration()
     }
-    setStep((s) => Math.min(2, s + 1))
+    if (step === 2) {
+      // Guarantee an editable config object before the validation step so the
+      // user can add categories even if AI generation failed.
+      if (!config) setConfig(EMPTY_CONFIG)
+    }
+    setStep((s) => Math.min(LAST_STEP, s + 1))
   }
 
   function goBack() {
     setError(null)
     setStep((s) => Math.max(0, s - 1))
   }
+
+  /** Skip the validation step, jumping straight to the final summary. */
+  function skipValidation() {
+    setError(null)
+    setStep(LAST_STEP)
+  }
+
+  const finalExcludedKeywords = Array.from(
+    new Set([...(config?.excludedKeywords ?? []), ...appliedExclusions])
+  )
 
   function updateConfig<K extends keyof GeneratedCompanyConfig>(
     key: K,
@@ -189,7 +199,7 @@ export default function RegisterPage() {
       minimumScore: config?.minimumScore ?? 7,
       notificationEmail: notificationEmail || email,
       relevantKeywords: config?.relevantKeywords ?? [],
-      excludedKeywords: config?.excludedKeywords ?? [],
+      excludedKeywords: finalExcludedKeywords,
       excludedProducts: config?.excludedProducts ?? [],
       rssFeeds: config?.rssFeeds ?? [],
     })
@@ -397,7 +407,7 @@ export default function RegisterPage() {
                   </div>
                   <ul className="space-y-0.5 text-sm text-[#334155]">
                     {config.rssFeeds.map((feed) => (
-                      <li key={feed}>• {feedLabel(feed)}</li>
+                      <li key={feed}>• {feedToLabel(feed)}</li>
                     ))}
                   </ul>
                 </div>
@@ -520,6 +530,55 @@ export default function RegisterPage() {
           </div>
         )}
 
+        {step === 3 && (
+          <ValidationStep
+            companyName={companyName}
+            description={buildDescription()}
+            capabilities={capabilitiesToList(capabilitiesText)}
+            feeds={config?.rssFeeds ?? []}
+            onFeedsChange={(feeds) => {
+              setConfig((prev) => (prev ? { ...prev, rssFeeds: feeds } : { ...EMPTY_CONFIG, rssFeeds: feeds }))
+            }}
+            appliedExclusions={appliedExclusions}
+            onAppliedExclusionsChange={setAppliedExclusions}
+          />
+        )}
+
+        {step === 4 && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-[#0c1e3c]">Resumen de tu configuración</h2>
+
+            <div className="space-y-3 rounded-lg border border-[#e0f2fe] p-4 text-sm">
+              <div>
+                <span className="font-semibold text-[#0c1e3c]">
+                  Categorías ({config?.rssFeeds.length ?? 0}):
+                </span>{' '}
+                <span className="text-[#334155]">
+                  {config && config.rssFeeds.length > 0
+                    ? config.rssFeeds.map((f) => feedToLabel(f)).join(', ')
+                    : '—'}
+                </span>
+              </div>
+              <div>
+                <span className="font-semibold text-[#0c1e3c]">
+                  Keywords excluidos ({finalExcludedKeywords.length}):
+                </span>{' '}
+                <span className="text-[#334155]">
+                  {finalExcludedKeywords.length > 0 ? finalExcludedKeywords.join(', ') : '—'}
+                </span>
+              </div>
+              <div>
+                <span className="font-semibold text-[#0c1e3c]">Puntaje mínimo:</span>{' '}
+                <span className="text-[#334155]">{config?.minimumScore ?? 7}</span>
+              </div>
+              <div>
+                <span className="font-semibold text-[#0c1e3c]">Cadencia:</span>{' '}
+                <span className="text-[#334155]">Diaria</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {error && (
           <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-[#dc2626]">{error}</p>
         )}
@@ -532,16 +591,16 @@ export default function RegisterPage() {
               disabled={loading}
               className="flex-1 rounded-lg border border-[#e0f2fe] py-2.5 text-sm font-medium text-[#0c1e3c] hover:bg-[#f0f9ff] disabled:opacity-60"
             >
-              Atrás
+              {step === LAST_STEP ? '← Volver a ajustar' : 'Atrás'}
             </button>
           )}
-          {step < 2 ? (
+          {step < LAST_STEP ? (
             <button
               type="button"
               onClick={goNext}
               className="flex-1 rounded-lg bg-[#06b6d4] py-2.5 text-sm font-medium text-white hover:bg-[#0891b2]"
             >
-              Siguiente
+              {step === 3 ? 'Continuar →' : 'Siguiente'}
             </button>
           ) : (
             <button
@@ -550,10 +609,20 @@ export default function RegisterPage() {
               disabled={loading || generating}
               className="flex-1 rounded-lg bg-[#06b6d4] py-2.5 text-sm font-medium text-white hover:bg-[#0891b2] disabled:opacity-60"
             >
-              {loading ? 'Creando cuenta…' : 'Usar esta configuración →'}
+              {loading ? 'Creando cuenta…' : '✓ Crear cuenta'}
             </button>
           )}
         </div>
+
+        {step === 3 && (
+          <button
+            type="button"
+            onClick={skipValidation}
+            className="mt-3 block w-full text-center text-sm text-[#6b7280] hover:text-[#0c1e3c] hover:underline"
+          >
+            Omitir este paso →
+          </button>
+        )}
 
         <p className="mt-6 text-center text-sm text-[#6b7280]">
           ¿Ya tenés cuenta?{' '}
