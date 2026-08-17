@@ -342,7 +342,10 @@ export function ConfigForm({
         </Section>
 
         <Section title="Filtros">
-          <Field label="Keywords excluidas">
+          <Field
+            label="Keywords excluidas"
+            helper="Además de los que agregues, el sistema aplica un conjunto base de términos para filtrar publicaciones irrelevantes."
+          >
             <TagInput
               values={form.excludedKeywords}
               onChange={(v) => commitField('excludedKeywords', v)}
