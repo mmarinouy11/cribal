@@ -124,15 +124,18 @@ FAMILIA 12 — PRODUCTOS EXCLUSIVOS ENTES (UTE, ANCAP, ANTEL)
   Solo para empresas que proveen a UTE (electricidad), ANCAP (combustibles) o ANTEL (telecomunicaciones)
 
 NOTAS IMPORTANTES:
+- El sistema sirve a empresas de CUALQUIER rubro. No asumas tecnología ni ningún
+  rubro por defecto: inferí el rubro real a partir del perfil de la empresa y elegí
+  las familias/subfamilias que le correspondan.
+- Familia 2 subfamilia 1 = alimentos → para proveedores de alimentos al Estado
+- Familia 3 subfamilia 7 = mantenimiento y reparaciones → para empresas de servicio técnico
+- Familia 3 subfamilia 8 = servicios profesionales → para consultoras, médicos, diseñadores
+- Familia 3 subfamilia 9 clase 1 = limpieza → para empresas de limpieza
+- Familia 6 = obras → para constructoras, ingeniería civil
+- Familia 4 subfamilia 5 clase 5 = bicicletas (compra de vehículos nuevos)
+- Familia 2 subfamilia 12 clase 1 subclase 18 = repuestos bicicletas → muy específico
 - Familia 3 subfamilia 10 = servicios TIC (desarrollo software, soporte, cloud) → para empresas de TI
 - Familia 10 subfamilia 43 = hardware TIC (computadoras, licencias) → para resellers/distribuidores TIC
-- Familia 3 subfamilia 9 clase 1 = limpieza → para empresas de limpieza
-- Familia 3 subfamilia 8 = servicios profesionales → para consultoras, médicos, diseñadores
-- Familia 6 = obras → para constructoras, ingeniería civil
-- Familia 2 subfamilia 12 clase 1 subclase 18 = repuestos bicicletas → muy específico
-- Familia 4 subfamilia 5 clase 5 = bicicletas (compra de vehículos nuevos)
-- Familia 3 subfamilia 7 = mantenimiento y reparaciones → para empresas de servicio técnico
-- Familia 2 subfamilia 1 = alimentos → para proveedores de alimentos al Estado
 - Si la empresa está en un rubro muy específico, preferir subfamilia sobre familia completa
 
 Respondé ÚNICAMENTE con un objeto JSON válido, sin markdown, sin texto adicional:

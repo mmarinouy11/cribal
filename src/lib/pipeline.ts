@@ -128,7 +128,11 @@ export async function runPipeline(companyId: string): Promise<void> {
     }
 
     // 7b. Exclusion filter.
-    const exclusionResult = filterExclusions(keywordResult.passed, company.excludedProducts)
+    const exclusionResult = filterExclusions(
+      keywordResult.passed,
+      company.excludedProducts,
+      company.relevantKeywords
+    )
     for (const { tender, reason } of exclusionResult.rejected) {
       await saveRawPublication(
         run.id,
