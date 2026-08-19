@@ -2,12 +2,12 @@
 
 // Session-free server actions for the onboarding validation step. These run
 // during registration, BEFORE a user/company exists, so they never call auth().
-// fetchAndClassifyValidationSample fetches the historical sample, keyword-filters
-// it and classifies it with Claude in a single call.
+// fetchAndClassifyValidationSample fetches a sample from the selected feeds
+// (tipo-pub/ALL — the same universe the pipeline monitors), keyword-filters it
+// and classifies it with Claude in a single call.
 
 import Parser from 'rss-parser'
 import Anthropic from '@anthropic-ai/sdk'
-import { feedToAdjudicationUrl } from '@/lib/arce/catalog'
 import type {
   ValidationItem,
   ClassifiedValidationItem,
@@ -16,7 +16,7 @@ import type {
 } from '@/lib/register/validation'
 
 const MODEL = 'claude-sonnet-4-6'
-const SAMPLE_SIZE = 15
+const SAMPLE_SIZE = 25 // classify/show up to this many (before keyword filter)
 const MIN_FILTERED = 3 // below this, fall back to the unfiltered sample
 
 const parser = new Parser({ timeout: 30000 })
@@ -35,14 +35,17 @@ function stripMarkdownFences(text: string): string {
 }
 
 /**
- * Fetch every feed's adjudications (ADJ) variant in parallel and return the
- * deduplicated items, most recent first. Feeds that fail are skipped.
+ * Fetch every feed in parallel and return the deduplicated items, most recent
+ * first. Uses the feeds as-is (tipo-pub/ALL — the same universe the pipeline
+ * monitors: open, closed and adjudicated), which gives a much larger and more
+ * representative sample than adjudications alone, especially for niche
+ * industries. Feeds that fail are skipped.
  */
 async function fetchSampleItems(feeds: string[]): Promise<ValidationItem[]> {
   const settled = await Promise.all(
     feeds.map(async (feed): Promise<ValidationItem[]> => {
       try {
-        const parsed = await parser.parseURL(feedToAdjudicationUrl(feed))
+        const parsed = await parser.parseURL(feed)
         return (parsed.items ?? []).map((raw) => {
           const title = raw.title ?? ''
           const link = raw.link ?? ''
@@ -75,7 +78,7 @@ async function fetchSampleItems(feeds: string[]): Promise<ValidationItem[]> {
   return items
 }
 
-const AI_SYSTEM_PROMPT = `Clasificá estas licitaciones adjudicadas como relevantes o no para la empresa indicada.
+const AI_SYSTEM_PROMPT = `Clasificá estas licitaciones como relevantes o no para la empresa indicada.
 Para cada una, retorná SOLO un array JSON:
 [{ "id": string, "relevant": boolean, "reason": string (una oración en español) }]`
 
@@ -115,7 +118,7 @@ async function classifyItems(
 Descripción: ${companyProfile.description || 'No disponible'}
 Capacidades: ${companyProfile.capabilities.join(', ') || 'No disponible'}
 
-Licitaciones adjudicadas a clasificar:
+Licitaciones a clasificar:
 ${itemsBlock}`
 
   const validIds = new Set(items.map((i) => i.id))

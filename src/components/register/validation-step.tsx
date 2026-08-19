@@ -182,7 +182,7 @@ export function ValidationStep({
       <section className="space-y-3">
         <div>
           <h3 className="text-sm font-semibold text-[#0c1e3c]">
-            Muestra histórica de licitaciones adjudicadas
+            Muestra de licitaciones reales
             {!loading && sample.length > 0 && ` (${sample.length})`}
           </h3>
         </div>
