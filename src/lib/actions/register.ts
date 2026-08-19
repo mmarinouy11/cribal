@@ -8,6 +8,7 @@
 
 import Parser from 'rss-parser'
 import Anthropic from '@anthropic-ai/sdk'
+import { textFeedUrl } from '@/lib/arce/catalog'
 import type {
   ValidationItem,
   ClassifiedValidationItem,
@@ -152,24 +153,34 @@ ${itemsBlock}`
 }
 
 /**
- * Load a historical sample for the selected categories, pre-filter it by the
- * company's relevant keywords (base list + custom), and classify it with Claude
- * in a single call. When the keyword filter yields fewer than MIN_FILTERED
- * items it falls back to the unfiltered sample and flags `usedFallback`.
+ * Load a sample for the validation step and classify it with Claude in a single
+ * call. ARCE's RSS endpoint ignores family/subfamily params (a subfamily URL
+ * returns the same ~1000 unrelated items as the whole family), so only
+ * `/texto/{keyword}` feeds actually filter by content. We therefore build the
+ * sample from text-search feeds derived from the company's relevant keywords,
+ * guaranteeing the items actually contain what the company configured. Only when
+ * there are no keywords do we fall back to the configured feeds.
  */
 export async function fetchAndClassifyValidationSample(
   feeds: string[],
   additionalKeywords: string[],
   companyProfile: CompanyProfileInput
 ): Promise<{ items: ClassifiedValidationItem[]; usedFallback: boolean }> {
-  if (feeds.length === 0) return { items: [], usedFallback: false }
+  // Build text-search feeds from the top (most specific = longest) keywords.
+  const topKeywords = additionalKeywords
+    .filter((kw) => kw.length > 4) // skip very short terms
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 5)
 
-  // Diagnostic: the exact feed URLs being fetched. Family-level feeds
-  // (/familia/N with no /subfamilia/M) pull the whole family and make the
-  // sample unrepresentative — they should be subfamily-level when possible.
-  console.log('[CRIBAL][VALIDACION] Feeds a consultar:', JSON.stringify(feeds))
+  const textFeeds = topKeywords.map((kw) => textFeedUrl(kw))
+  const sampleFeeds = textFeeds.length > 0 ? textFeeds : feeds
 
-  const allItems = await fetchSampleItems(feeds)
+  console.log('[CRIBAL][VALIDACION] Keywords para muestra:', JSON.stringify(topKeywords))
+  console.log('[CRIBAL][VALIDACION] Feeds de texto:', JSON.stringify(sampleFeeds))
+
+  if (sampleFeeds.length === 0) return { items: [], usedFallback: false }
+
+  const allItems = await fetchSampleItems(sampleFeeds)
 
   // Pre-filter only by the company-specific keywords Claude inferred — NOT the
   // pipeline's TI base list, which would wipe out non-TI companies (bicicletas,
