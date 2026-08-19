@@ -21,6 +21,7 @@ export default async function ConfigurationPage() {
     excludedKeywords: company.excludedKeywords,
     excludedProducts: company.excludedProducts,
     customAiPrompt: company.customAiPrompt ?? '',
+    emailOnlyWhenRelevant: company.emailOnlyWhenRelevant,
   }
 
   // The AI-regenerate infers feeds and filters from the company profile.

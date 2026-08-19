@@ -262,6 +262,7 @@ export interface CompanyConfigInput {
   rssFeeds?: string[]
   customAiPrompt?: string | null
   notificationEmails?: string[]
+  emailOnlyWhenRelevant?: boolean
 }
 
 export async function updateCompanyConfig(data: CompanyConfigInput): Promise<void> {
@@ -283,6 +284,9 @@ export async function updateCompanyConfig(data: CompanyConfigInput): Promise<voi
   if (data.customAiPrompt !== undefined) updateData.customAiPrompt = data.customAiPrompt || null
   if (data.notificationEmails !== undefined) {
     updateData.notificationEmails = data.notificationEmails
+  }
+  if (data.emailOnlyWhenRelevant !== undefined) {
+    updateData.emailOnlyWhenRelevant = data.emailOnlyWhenRelevant
   }
 
   await prisma.companyConfig.update({

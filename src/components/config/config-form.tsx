@@ -24,6 +24,7 @@ export interface ConfigFormValues {
   excludedKeywords: string[]
   excludedProducts: string[]
   customAiPrompt: string
+  emailOnlyWhenRelevant: boolean
 }
 
 export interface RegenContext {
@@ -103,6 +104,7 @@ export function ConfigForm({
         excludedKeywords: state.excludedKeywords,
         excludedProducts: state.excludedProducts,
         customAiPrompt: state.customAiPrompt,
+        emailOnlyWhenRelevant: state.emailOnlyWhenRelevant,
       })
       setSaveStatus('saved')
       setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), 3000)
@@ -372,6 +374,33 @@ export function ConfigForm({
               placeholder="Agregar email y Enter"
               inputType="email"
             />
+          </Field>
+          <Field
+            label="Notificaciones por email"
+            helper="Con la segunda opción solo recibirás emails los días en que el sistema encuentre oportunidades relevantes para tu empresa."
+          >
+            <div className="space-y-2">
+              <label className="flex cursor-pointer items-start gap-2 text-sm text-[#0c1e3c]">
+                <input
+                  type="radio"
+                  name="emailOnlyWhenRelevant"
+                  checked={!form.emailOnlyWhenRelevant}
+                  onChange={() => commitField('emailOnlyWhenRelevant', false)}
+                  className="mt-0.5 h-4 w-4 border-[#cbd5e1] text-[#06b6d4] focus:ring-[#06b6d4]"
+                />
+                Enviar resumen diario siempre (aunque no haya oportunidades relevantes)
+              </label>
+              <label className="flex cursor-pointer items-start gap-2 text-sm text-[#0c1e3c]">
+                <input
+                  type="radio"
+                  name="emailOnlyWhenRelevant"
+                  checked={form.emailOnlyWhenRelevant}
+                  onChange={() => commitField('emailOnlyWhenRelevant', true)}
+                  className="mt-0.5 h-4 w-4 border-[#cbd5e1] text-[#06b6d4] focus:ring-[#06b6d4]"
+                />
+                Enviar solo cuando hay oportunidades relevantes
+              </label>
+            </div>
           </Field>
           <Field label={`Puntaje mínimo: ${form.minimumScore}`}>
             <input

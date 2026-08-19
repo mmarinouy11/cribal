@@ -20,6 +20,12 @@ export interface AiClassification {
   reason: string
 }
 
+/** A sample item already classified by Claude (auto-classification on load). */
+export interface ClassifiedValidationItem extends ValidationItem {
+  aiRelevant: boolean
+  aiReason: string
+}
+
 export interface CompanyProfileInput {
   name: string
   description: string

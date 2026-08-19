@@ -2,27 +2,25 @@
 
 // Session-free server actions for the onboarding validation step. These run
 // during registration, BEFORE a user/company exists, so they never call auth().
-// fetchValidationSample uses no Claude tokens; validateSampleWithAI makes a
-// single Claude call on demand.
+// fetchAndClassifyValidationSample fetches the historical sample, keyword-filters
+// it and classifies it with Claude in a single call.
 
 import Parser from 'rss-parser'
 import Anthropic from '@anthropic-ai/sdk'
 import { feedToAdjudicationUrl } from '@/lib/arce/catalog'
+import { BASE_RELEVANT_KEYWORDS } from '@/lib/pipeline/keywordFilter'
 import type {
   ValidationItem,
+  ClassifiedValidationItem,
   AiClassification,
   CompanyProfileInput,
 } from '@/lib/register/validation'
 
 const MODEL = 'claude-sonnet-4-6'
 const SAMPLE_SIZE = 15
-const FETCH_DELAY_MS = 300 // stagger feed fetches so ARCE is not hit all at once
+const MIN_FILTERED = 5 // below this, fall back to the unfiltered sample
 
 const parser = new Parser({ timeout: 30000 })
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
 
 /** Organismo is the text after the last "|" in an ARCE RSS title. */
 function organismoFromTitle(title: string): string {
@@ -38,60 +36,44 @@ function stripMarkdownFences(text: string): string {
 }
 
 /**
- * Load a sample of recently adjudicated tenders for the given active-call feeds.
- * Each feed is mapped to its adjudications (ADJ) variant, fetched with a small
- * stagger, then normalized, deduplicated by guid and trimmed to the most recent.
+ * Fetch every feed's adjudications (ADJ) variant in parallel and return the
+ * deduplicated items, most recent first. Feeds that fail are skipped.
  */
-export async function fetchValidationSample(feeds: string[]): Promise<ValidationItem[]> {
-  if (feeds.length === 0) return []
-
-  const settled = await Promise.allSettled(
-    feeds.map(async (feed, index): Promise<{ feed: string; items: ValidationItem[] }> => {
-      await sleep(index * FETCH_DELAY_MS)
-      const adjUrl = feedToAdjudicationUrl(feed)
-      const parsed = await parser.parseURL(adjUrl)
-      const items: ValidationItem[] = (parsed.items ?? []).map((raw) => {
-        const title = raw.title ?? ''
-        const link = raw.link ?? ''
-        return {
-          id: raw.guid ?? link,
-          title,
-          object: (raw.contentSnippet ?? raw.content ?? '').trim(),
-          organismo: organismoFromTitle(title),
-          url: link,
-          feedSource: feed,
-        }
-      })
-      return { feed, items }
+async function fetchSampleItems(feeds: string[]): Promise<ValidationItem[]> {
+  const settled = await Promise.all(
+    feeds.map(async (feed): Promise<ValidationItem[]> => {
+      try {
+        const parsed = await parser.parseURL(feedToAdjudicationUrl(feed))
+        return (parsed.items ?? []).map((raw) => {
+          const title = raw.title ?? ''
+          const link = raw.link ?? ''
+          return {
+            id: raw.guid ?? link,
+            title,
+            object: (raw.contentSnippet ?? raw.content ?? '').trim(),
+            organismo: organismoFromTitle(title),
+            url: link,
+            feedSource: feed,
+          }
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(`[CRIBAL][VALIDACION] Feed ${feed} falló: ${message}`)
+        return []
+      }
     })
   )
 
   const seen = new Set<string>()
-  const collected: { item: ValidationItem; pubDate: number }[] = []
-
-  for (let i = 0; i < settled.length; i++) {
-    const result = settled[i]
-    if (result.status === 'rejected') {
-      const message =
-        result.reason instanceof Error ? result.reason.message : String(result.reason)
-      console.error(`[CRIBAL][VALIDACION] Feed ${feeds[i]} falló: ${message}`)
-      continue
-    }
-    // rss-parser exposes isoDate; fall back to pubDate for ordering.
-    const parsedForDate = result.value.items
-    for (let j = 0; j < parsedForDate.length; j++) {
-      const item = parsedForDate[j]
+  const items: ValidationItem[] = []
+  for (const feedItems of settled) {
+    for (const item of feedItems) {
       if (!item.id || seen.has(item.id)) continue
       seen.add(item.id)
-      // Preserve feed order as a stable proxy when no date is available.
-      collected.push({ item, pubDate: -(i * 1000 + j) })
+      items.push(item)
     }
   }
-
-  return collected
-    .sort((a, b) => b.pubDate - a.pubDate)
-    .slice(0, SAMPLE_SIZE)
-    .map((c) => c.item)
+  return items
 }
 
 const AI_SYSTEM_PROMPT = `Clasificá estas licitaciones adjudicadas como relevantes o no para la empresa indicada.
@@ -116,12 +98,8 @@ function parseClassifications(text: string, validIds: Set<string>): AiClassifica
   return result
 }
 
-/**
- * Classify the given sample items as relevant/not for the company in a single
- * Claude call. Returns one classification per item Claude recognized; the caller
- * pre-fills the marks and can still override them.
- */
-export async function validateSampleWithAI(
+/** Classify sample items in a single Claude call. Empty array on failure. */
+async function classifyItems(
   items: ValidationItem[],
   companyProfile: CompanyProfileInput
 ): Promise<AiClassification[]> {
@@ -160,7 +138,55 @@ ${itemsBlock}`
   try {
     return parseClassifications(await callModel(), validIds)
   } catch {
-    // Retry once on malformed JSON.
-    return parseClassifications(await callModel(), validIds)
+    try {
+      // Retry once on malformed JSON.
+      return parseClassifications(await callModel(), validIds)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`[CRIBAL][VALIDACION] Clasificación IA falló: ${message}`)
+      return []
+    }
   }
+}
+
+/**
+ * Load a historical sample for the selected categories, pre-filter it by the
+ * company's relevant keywords (base list + custom), and classify it with Claude
+ * in a single call. When the keyword filter yields fewer than MIN_FILTERED
+ * items it falls back to the unfiltered sample and flags `usedFallback`.
+ */
+export async function fetchAndClassifyValidationSample(
+  feeds: string[],
+  additionalKeywords: string[],
+  companyProfile: CompanyProfileInput
+): Promise<{ items: ClassifiedValidationItem[]; usedFallback: boolean }> {
+  if (feeds.length === 0) return { items: [], usedFallback: false }
+
+  const allItems = await fetchSampleItems(feeds)
+
+  // Keyword pre-filter — same logic as filterByKeywords in the pipeline.
+  const keywordsToMatch = [...BASE_RELEVANT_KEYWORDS, ...additionalKeywords].map((k) =>
+    k.toLowerCase()
+  )
+  const filtered = allItems.filter((item) => {
+    const text = `${item.title} ${item.object}`.toLowerCase()
+    return keywordsToMatch.some((kw) => text.includes(kw))
+  })
+
+  const usedFallback = filtered.length < MIN_FILTERED
+  const sample = (usedFallback ? allItems : filtered).slice(0, SAMPLE_SIZE)
+
+  const classifications = await classifyItems(sample, companyProfile)
+  const byId = new Map(classifications.map((c) => [c.id, c]))
+
+  const items: ClassifiedValidationItem[] = sample.map((item) => {
+    const c = byId.get(item.id)
+    return {
+      ...item,
+      aiRelevant: c?.relevant ?? false,
+      aiReason: c?.reason ?? '',
+    }
+  })
+
+  return { items, usedFallback }
 }
