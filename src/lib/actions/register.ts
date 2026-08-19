@@ -8,7 +8,6 @@
 import Parser from 'rss-parser'
 import Anthropic from '@anthropic-ai/sdk'
 import { feedToAdjudicationUrl } from '@/lib/arce/catalog'
-import { BASE_RELEVANT_KEYWORDS } from '@/lib/pipeline/keywordFilter'
 import type {
   ValidationItem,
   ClassifiedValidationItem,
@@ -18,7 +17,7 @@ import type {
 
 const MODEL = 'claude-sonnet-4-6'
 const SAMPLE_SIZE = 15
-const MIN_FILTERED = 5 // below this, fall back to the unfiltered sample
+const MIN_FILTERED = 3 // below this, fall back to the unfiltered sample
 
 const parser = new Parser({ timeout: 30000 })
 
@@ -164,17 +163,26 @@ export async function fetchAndClassifyValidationSample(
 
   const allItems = await fetchSampleItems(feeds)
 
-  // Keyword pre-filter — same logic as filterByKeywords in the pipeline.
-  const keywordsToMatch = [...BASE_RELEVANT_KEYWORDS, ...additionalKeywords].map((k) =>
-    k.toLowerCase()
-  )
-  const filtered = allItems.filter((item) => {
-    const text = `${item.title} ${item.object}`.toLowerCase()
-    return keywordsToMatch.some((kw) => text.includes(kw))
-  })
+  // Pre-filter only by the company-specific keywords Claude inferred — NOT the
+  // pipeline's TI base list, which would wipe out non-TI companies (bicicletas,
+  // obras, alimentos, etc.). With no company keywords, skip filtering entirely
+  // and let Claude classify the raw sample.
+  const keywordsToMatch = additionalKeywords.map((k) => k.toLowerCase()).filter(Boolean)
 
-  const usedFallback = filtered.length < MIN_FILTERED
-  const sample = (usedFallback ? allItems : filtered).slice(0, SAMPLE_SIZE)
+  let sample: ValidationItem[]
+  let usedFallback: boolean
+  if (keywordsToMatch.length === 0) {
+    sample = allItems.slice(0, SAMPLE_SIZE)
+    usedFallback = false
+  } else {
+    const filtered = allItems.filter((item) => {
+      const text = `${item.title} ${item.object}`.toLowerCase()
+      return keywordsToMatch.some((kw) => text.includes(kw))
+    })
+    // A small filtered set is still valid; only fall back when it's very thin.
+    usedFallback = filtered.length < MIN_FILTERED
+    sample = (usedFallback ? allItems : filtered).slice(0, SAMPLE_SIZE)
+  }
 
   const classifications = await classifyItems(sample, companyProfile)
   const byId = new Map(classifications.map((c) => [c.id, c]))
