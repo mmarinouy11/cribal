@@ -346,7 +346,7 @@ export function ConfigForm({
         <Section title="Filtros">
           <Field
             label="Keywords excluidas"
-            helper="Además de los que agregues, el sistema aplica un conjunto base de términos para filtrar publicaciones irrelevantes."
+            helper="Además de los que agregues, el sistema aplica un conjunto base de términos para filtrar publicaciones claramente irrelevantes (obras civiles, insumos médicos, etc.)."
           >
             <TagInput
               values={form.excludedKeywords}

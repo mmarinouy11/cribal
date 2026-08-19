@@ -52,16 +52,28 @@ export interface ExclusionFilterResult {
 }
 
 /**
- * Filter out hardware purchases and specifically excluded products.
- * First applies the base exclusion keywords, then the special product logic:
- * an excluded product is only rejected when the context is license/renewal-only
- * and there is no broader managed-service/implementation/integration scope.
+ * Filter out generic noise (hardware, vehicles, medical supplies, …) and
+ * specifically excluded products.
+ *
+ * The base exclusion list is generic noise for most service companies, but it
+ * must not fight a company's own focus: any base term that appears in the
+ * company's relevant keywords is dropped from the exclusion set (e.g. a printer
+ * reseller whose relevant keyword is "impresora" keeps printer tenders).
+ *
+ * After base exclusions, the special product logic applies: an excluded product
+ * is only rejected when the context is license/renewal-only and there is no
+ * broader managed-service/implementation/integration scope.
  */
 export function filterExclusions(
   tenders: NormalizedTender[],
-  excludedProducts: string[]
+  excludedProducts: string[],
+  relevantKeywords: string[] = []
 ): ExclusionFilterResult {
-  const baseExclusions = BASE_EXCLUSION_KEYWORDS.map((k) => k.toLowerCase())
+  const relevant = relevantKeywords.map((k) => k.toLowerCase()).filter(Boolean)
+  const baseExclusions = BASE_EXCLUSION_KEYWORDS.map((k) => k.toLowerCase()).filter(
+    // Do not exclude a term the company explicitly marked relevant.
+    (exclusion) => !relevant.some((keyword) => keyword.includes(exclusion))
+  )
   const products = excludedProducts.map((p) => p.toLowerCase())
 
   const passed: NormalizedTender[] = []
