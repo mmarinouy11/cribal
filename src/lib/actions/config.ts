@@ -136,14 +136,20 @@ NOTAS IMPORTANTES:
 - Familia 2 subfamilia 12 clase 1 subclase 18 = repuestos bicicletas → muy específico
 - Familia 3 subfamilia 10 = servicios TIC (desarrollo software, soporte, cloud) → para empresas de TI
 - Familia 10 subfamilia 43 = hardware TIC (computadoras, licencias) → para resellers/distribuidores TIC
-- Si la empresa está en un rubro muy específico, preferir subfamilia sobre familia completa
+- REGLA DE PRECISIÓN (IMPORTANTE): usá SIEMPRE URLs a nivel SUBFAMILIA
+  (…/familia/{f}/subfamilia/{s}) cuando exista una subfamilia que corresponda al
+  rubro. Una URL a nivel familia (…/familia/{f}) trae TODA la familia (miles de
+  llamados no relacionados) y hace la muestra irrelevante. Usá familia completa
+  SOLO si ninguna subfamilia aplica. Ante la duda, elegí la subfamilia más específica.
+- Complementá con feeds de texto libre (…/texto/{término}) para rubros muy puntuales
+  (ej: /texto/bicicleta, /texto/ciclismo).
 
 Respondé ÚNICAMENTE con un objeto JSON válido, sin markdown, sin texto adicional:
 {
   "relevantKeywords": string[],     // 10-20 términos en español específicos para este rubro
   "excludedKeywords": string[],     // 5-15 términos que claramente NO aplican
   "excludedProducts": string[],     // 0-5 marcas/productos específicos a excluir (puede ser [])
-  "rssFeeds": string[],             // 1-5 URLs de feeds (familia o subfamilia según especificidad)
+  "rssFeeds": string[],             // 1-5 URLs de feeds — a nivel SUBFAMILIA siempre que exista una que aplique; familia completa solo si ninguna subfamilia corresponde
   "minimumScore": number,           // Entre 6 y 8
   "reasoning": string               // 2-3 oraciones en español explicando las elecciones
 }`
