@@ -164,6 +164,11 @@ export async function fetchAndClassifyValidationSample(
 ): Promise<{ items: ClassifiedValidationItem[]; usedFallback: boolean }> {
   if (feeds.length === 0) return { items: [], usedFallback: false }
 
+  // Diagnostic: the exact feed URLs being fetched. Family-level feeds
+  // (/familia/N with no /subfamilia/M) pull the whole family and make the
+  // sample unrepresentative — they should be subfamily-level when possible.
+  console.log('[CRIBAL][VALIDACION] Feeds a consultar:', JSON.stringify(feeds))
+
   const allItems = await fetchSampleItems(feeds)
 
   // Pre-filter only by the company-specific keywords Claude inferred — NOT the
