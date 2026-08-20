@@ -20,7 +20,20 @@ const MODEL = 'claude-sonnet-4-6'
 const SAMPLE_SIZE = 25 // classify/show up to this many
 const MIN_FILTERED = 5 // below this, fall back to the unfiltered sample
 
-const parser = new Parser({ timeout: 30000 })
+// ARCE puts the object description in content:encoded, not the title. Expose
+// those fields so contentSnippet/content are actually populated.
+interface CustomRssItem {
+  'content:encoded'?: string
+  'content:encodedSnippet'?: string
+}
+
+const parser = new Parser<Record<string, never>, CustomRssItem>({
+  timeout: 30000,
+  customFields: { item: ['content:encoded', 'content:encodedSnippet'] },
+})
+
+// A sample item plus the full (untruncated) text used for keyword matching.
+type SampleItem = ValidationItem & { contentSnippet: string; searchText: string }
 
 /** Organismo is the text after the last "|" in an ARCE RSS title. */
 function organismoFromTitle(title: string): string {
@@ -58,11 +71,11 @@ function stripMarkdownFences(text: string): string {
  * the fine-grained relevance filter happens in code (keywords). Feeds that fail
  * are skipped.
  */
-async function fetchSampleItems(familyFeeds: string[]): Promise<ValidationItem[]> {
+async function fetchSampleItems(familyFeeds: string[]): Promise<SampleItem[]> {
   const settled = await Promise.allSettled(familyFeeds.map((feed) => parser.parseURL(feed)))
 
   const seen = new Set<string>()
-  const items: ValidationItem[] = []
+  const items: SampleItem[] = []
 
   for (let i = 0; i < settled.length; i++) {
     const result = settled[i]
@@ -78,15 +91,23 @@ async function fetchSampleItems(familyFeeds: string[]): Promise<ValidationItem[]
       const id = raw.guid ?? link
       if (!id || seen.has(id)) continue
       seen.add(id)
-      const content = raw.contentSnippet ?? raw.content ?? ''
+
+      // The object description lives in the content fields, never the title.
+      const contentSnippet = raw.contentSnippet ?? raw['content:encodedSnippet'] ?? ''
+      const content = raw.content ?? raw['content:encoded'] ?? ''
+      const bestContent = contentSnippet || content
+
       items.push({
         id,
         title,
-        object: stripHtml(content).slice(0, 200),
+        object: stripHtml(bestContent).slice(0, 200),
         organismo: organismoFromTitle(title),
         url: link,
         feedSource: familyFeeds[i],
-        isOpen: isOpenTender(content),
+        isOpen: isOpenTender(bestContent),
+        contentSnippet,
+        // Full, untruncated text for keyword matching: title + both content fields.
+        searchText: `${title} ${contentSnippet} ${content}`.toLowerCase(),
       })
     }
   }
@@ -194,14 +215,20 @@ export async function fetchAndClassifyValidationSample(
   // 2-4. Fetch, normalize and deduplicate.
   const allItems = await fetchSampleItems(familyFeeds)
 
+  // Diagnostic: confirm the content fields are actually read from the RSS.
+  if (allItems.length > 0) {
+    const first = allItems[0]
+    console.log(
+      `[CRIBAL][VALIDACION] Primer item — title: "${first.title}" | contentSnippet: "${first.contentSnippet.slice(0, 120)}" | object: "${first.object}"`
+    )
+  }
+
   // 5. Apply the company's keyword filter in code (the real fine-grained filter).
+  // Match against the full text: title + contentSnippet + content.
   const keywordsToMatch = relevantKeywords.map((k) => k.toLowerCase()).filter(Boolean)
   const filtered =
     keywordsToMatch.length > 0
-      ? allItems.filter((item) => {
-          const text = `${item.title} ${item.object}`.toLowerCase()
-          return keywordsToMatch.some((kw) => text.includes(kw))
-        })
+      ? allItems.filter((item) => keywordsToMatch.some((kw) => item.searchText.includes(kw)))
       : allItems
 
   const usedFallback = filtered.length < MIN_FILTERED
@@ -219,8 +246,10 @@ export async function fetchAndClassifyValidationSample(
 
   const items: ClassifiedValidationItem[] = sample.map((item) => {
     const c = byId.get(item.id)
+    // Drop the internal-only fields (contentSnippet/searchText) from the payload.
+    const { contentSnippet: _cs, searchText: _st, ...base } = item
     return {
-      ...item,
+      ...base,
       aiRelevant: c?.relevant ?? false,
       aiReason: c?.reason ?? '',
     }
