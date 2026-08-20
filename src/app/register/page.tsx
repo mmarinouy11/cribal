@@ -537,6 +537,7 @@ export default function RegisterPage() {
             capabilities={capabilitiesToList(capabilitiesText)}
             relevantKeywords={config?.relevantKeywords ?? []}
             feeds={config?.rssFeeds ?? []}
+            generating={generating}
             onFeedsChange={(feeds) => {
               setConfig((prev) => (prev ? { ...prev, rssFeeds: feeds } : { ...EMPTY_CONFIG, rssFeeds: feeds }))
             }}
