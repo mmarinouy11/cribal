@@ -17,8 +17,8 @@ import type {
 } from '@/lib/register/validation'
 
 const MODEL = 'claude-sonnet-4-6'
-const SAMPLE_SIZE = 25 // classify/show up to this many
-const MIN_FILTERED = 5 // below this, fall back to the unfiltered sample
+const SAMPLE_SIZE = 25 // classify/show up to this many matches
+const FALLBACK_SIZE = 15 // unfiltered items shown only when there are zero matches
 
 // ARCE puts the object description in content:encoded, not the title. Expose
 // those fields so contentSnippet/content are actually populated.
@@ -203,7 +203,8 @@ export async function fetchAndClassifyValidationSample(
   console.log(
     '[CRIBAL][VALIDACION] Keywords recibidos:',
     relevantKeywords.length,
-    JSON.stringify(relevantKeywords.slice(0, 5))
+    '(mostrando primeros 10):',
+    JSON.stringify(relevantKeywords.slice(0, 10))
   )
 
   // 1. Normalize to family-level feeds only (dedupe, drop non-family feeds).
@@ -229,15 +230,20 @@ export async function fetchAndClassifyValidationSample(
   const filtered =
     keywordsToMatch.length > 0
       ? allItems.filter((item) => keywordsToMatch.some((kw) => item.searchText.includes(kw)))
-      : allItems
+      : []
 
-  const usedFallback = filtered.length < MIN_FILTERED
-  const sample = (usedFallback ? allItems : filtered).slice(0, SAMPLE_SIZE)
+  // Only fall back to an unfiltered sample when there are ZERO matches — even 1
+  // or 2 real matches are far more useful than 25 unrelated items.
+  const usedFallback = filtered.length === 0
+  const sample = usedFallback ? allItems.slice(0, FALLBACK_SIZE) : filtered.slice(0, SAMPLE_SIZE)
 
   // 6. Log.
   const familyNumbers = familyFeeds.map((f) => f.match(/\/familia\/(\d+)/)?.[1] ?? '?')
   console.log(
     `[CRIBAL][VALIDACION] Familias consultadas: [${familyNumbers.join(', ')}] | Total items: ${allItems.length} | Tras filtro keywords: ${filtered.length}`
+  )
+  console.log(
+    `[CRIBAL][VALIDACION] Matches: ${filtered.length} | Fallback: ${usedFallback} | Muestra: ${sample.length} items`
   )
 
   // 7. Classify with Claude (unchanged).
