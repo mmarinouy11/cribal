@@ -10,6 +10,7 @@ export interface ValidationItem {
   organismo: string // extraído del título
   url: string // link al detalle
   feedSource: string // qué feed lo trajo
+  isOpen: boolean // true si NO muestra señales de adjudicación/cierre
 }
 
 export type Mark = 'relevant' | 'not_relevant' | null

@@ -203,8 +203,10 @@ export function ValidationStep({
         ) : (
           <>
             <p className="text-xs text-[#6b7280]">
-              El sistema pre-clasificó los resultados según tu perfil. Podés ajustar cualquier
-              marcación.
+              Mostramos licitaciones recientes de las categorías configuradas — tanto abiertas como
+              cerradas. Las cerradas sirven para verificar que el sistema habría detectado
+              oportunidades relevantes para tu empresa. El sistema pre-clasificó los resultados
+              según tu perfil; podés ajustar cualquier marcación.
             </p>
 
             {usedFallback && (
@@ -258,6 +260,17 @@ export function ValidationStep({
                         >
                           Ver →
                         </a>
+                      )}
+                    </div>
+                    <div className="mt-1">
+                      {item.isOpen ? (
+                        <span className="inline-flex items-center rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-medium text-[#15803d]">
+                          Abierta
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-medium text-[#64748b]">
+                          Cerrada
+                        </span>
                       )}
                     </div>
                     {reason && (

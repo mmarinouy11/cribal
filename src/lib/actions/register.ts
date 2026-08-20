@@ -8,7 +8,7 @@
 
 import Parser from 'rss-parser'
 import Anthropic from '@anthropic-ai/sdk'
-import { textFeedUrl } from '@/lib/arce/catalog'
+import { normalizeFeedToFamily } from '@/lib/arce/catalog'
 import type {
   ValidationItem,
   ClassifiedValidationItem,
@@ -17,8 +17,8 @@ import type {
 } from '@/lib/register/validation'
 
 const MODEL = 'claude-sonnet-4-6'
-const SAMPLE_SIZE = 25 // classify/show up to this many (before keyword filter)
-const MIN_FILTERED = 3 // below this, fall back to the unfiltered sample
+const SAMPLE_SIZE = 25 // classify/show up to this many
+const MIN_FILTERED = 5 // below this, fall back to the unfiltered sample
 
 const parser = new Parser({ timeout: 30000 })
 
@@ -26,6 +26,23 @@ const parser = new Parser({ timeout: 30000 })
 function organismoFromTitle(title: string): string {
   const parts = title.split('|')
   return parts.length > 1 ? parts[parts.length - 1].trim() : ''
+}
+
+function stripHtml(text: string): string {
+  return text
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** A tender is "open" when its content shows no adjudication/close signals. */
+function isOpenTender(content: string): boolean {
+  const lower = content.toLowerCase()
+  return (
+    !lower.includes('adjudicad') &&
+    !lower.includes('declarada desierta') &&
+    !lower.includes('resolución')
+  )
 }
 
 function stripMarkdownFences(text: string): string {
@@ -36,44 +53,41 @@ function stripMarkdownFences(text: string): string {
 }
 
 /**
- * Fetch every feed in parallel and return the deduplicated items, most recent
- * first. Uses the feeds as-is (tipo-pub/ALL — the same universe the pipeline
- * monitors: open, closed and adjudicated), which gives a much larger and more
- * representative sample than adjudications alone, especially for niche
- * industries. Feeds that fail are skipped.
+ * Fetch the given family feeds in parallel and return the deduplicated items.
+ * ARCE only filters the RSS by family, so these feeds return the whole family;
+ * the fine-grained relevance filter happens in code (keywords). Feeds that fail
+ * are skipped.
  */
-async function fetchSampleItems(feeds: string[]): Promise<ValidationItem[]> {
-  const settled = await Promise.all(
-    feeds.map(async (feed): Promise<ValidationItem[]> => {
-      try {
-        const parsed = await parser.parseURL(feed)
-        return (parsed.items ?? []).map((raw) => {
-          const title = raw.title ?? ''
-          const link = raw.link ?? ''
-          return {
-            id: raw.guid ?? link,
-            title,
-            object: (raw.contentSnippet ?? raw.content ?? '').trim(),
-            organismo: organismoFromTitle(title),
-            url: link,
-            feedSource: feed,
-          }
-        })
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        console.error(`[CRIBAL][VALIDACION] Feed ${feed} falló: ${message}`)
-        return []
-      }
-    })
-  )
+async function fetchSampleItems(familyFeeds: string[]): Promise<ValidationItem[]> {
+  const settled = await Promise.allSettled(familyFeeds.map((feed) => parser.parseURL(feed)))
 
   const seen = new Set<string>()
   const items: ValidationItem[] = []
-  for (const feedItems of settled) {
-    for (const item of feedItems) {
-      if (!item.id || seen.has(item.id)) continue
-      seen.add(item.id)
-      items.push(item)
+
+  for (let i = 0; i < settled.length; i++) {
+    const result = settled[i]
+    if (result.status === 'rejected') {
+      const message =
+        result.reason instanceof Error ? result.reason.message : String(result.reason)
+      console.error(`[CRIBAL][VALIDACION] Feed ${familyFeeds[i]} falló: ${message}`)
+      continue
+    }
+    for (const raw of result.value.items ?? []) {
+      const title = raw.title ?? ''
+      const link = raw.link ?? ''
+      const id = raw.guid ?? link
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      const content = raw.contentSnippet ?? raw.content ?? ''
+      items.push({
+        id,
+        title,
+        object: stripHtml(content).slice(0, 200),
+        organismo: organismoFromTitle(title),
+        url: link,
+        feedSource: familyFeeds[i],
+        isOpen: isOpenTender(content),
+      })
     }
   }
   return items
@@ -154,55 +168,45 @@ ${itemsBlock}`
 
 /**
  * Load a sample for the validation step and classify it with Claude in a single
- * call. ARCE's RSS endpoint ignores family/subfamily params (a subfamily URL
- * returns the same ~1000 unrelated items as the whole family), so only
- * `/texto/{keyword}` feeds actually filter by content. We therefore build the
- * sample from text-search feeds derived from the company's relevant keywords,
- * guaranteeing the items actually contain what the company configured. Only when
- * there are no keywords do we fall back to the configured feeds.
+ * call. ARCE's RSS endpoint ONLY filters by family (subfamily and free-text
+ * params are ignored and return the whole family / the 1000 most recent items),
+ * so we normalize every feed to its family form, fetch those, and do the
+ * fine-grained relevance filtering in code with the company's keywords.
  */
 export async function fetchAndClassifyValidationSample(
   feeds: string[],
-  additionalKeywords: string[],
+  relevantKeywords: string[],
   companyProfile: CompanyProfileInput
 ): Promise<{ items: ClassifiedValidationItem[]; usedFallback: boolean }> {
-  // Build text-search feeds from the top (most specific = longest) keywords.
-  const topKeywords = additionalKeywords
-    .filter((kw) => kw.length > 4) // skip very short terms
-    .sort((a, b) => b.length - a.length)
-    .slice(0, 5)
+  // 1. Normalize to family-level feeds only (dedupe, drop non-family feeds).
+  const familyFeeds = [
+    ...new Set(feeds.map(normalizeFeedToFamily).filter((f) => f.includes('/familia/'))),
+  ]
+  if (familyFeeds.length === 0) return { items: [], usedFallback: false }
 
-  const textFeeds = topKeywords.map((kw) => textFeedUrl(kw))
-  const sampleFeeds = textFeeds.length > 0 ? textFeeds : feeds
+  // 2-4. Fetch, normalize and deduplicate.
+  const allItems = await fetchSampleItems(familyFeeds)
 
-  console.log('[CRIBAL][VALIDACION] Keywords para muestra:', JSON.stringify(topKeywords))
-  console.log('[CRIBAL][VALIDACION] Feeds de texto:', JSON.stringify(sampleFeeds))
+  // 5. Apply the company's keyword filter in code (the real fine-grained filter).
+  const keywordsToMatch = relevantKeywords.map((k) => k.toLowerCase()).filter(Boolean)
+  const filtered =
+    keywordsToMatch.length > 0
+      ? allItems.filter((item) => {
+          const text = `${item.title} ${item.object}`.toLowerCase()
+          return keywordsToMatch.some((kw) => text.includes(kw))
+        })
+      : allItems
 
-  if (sampleFeeds.length === 0) return { items: [], usedFallback: false }
+  const usedFallback = filtered.length < MIN_FILTERED
+  const sample = (usedFallback ? allItems : filtered).slice(0, SAMPLE_SIZE)
 
-  const allItems = await fetchSampleItems(sampleFeeds)
+  // 6. Log.
+  const familyNumbers = familyFeeds.map((f) => f.match(/\/familia\/(\d+)/)?.[1] ?? '?')
+  console.log(
+    `[CRIBAL][VALIDACION] Familias consultadas: [${familyNumbers.join(', ')}] | Total items: ${allItems.length} | Tras filtro keywords: ${filtered.length}`
+  )
 
-  // Pre-filter only by the company-specific keywords Claude inferred — NOT the
-  // pipeline's TI base list, which would wipe out non-TI companies (bicicletas,
-  // obras, alimentos, etc.). With no company keywords, skip filtering entirely
-  // and let Claude classify the raw sample.
-  const keywordsToMatch = additionalKeywords.map((k) => k.toLowerCase()).filter(Boolean)
-
-  let sample: ValidationItem[]
-  let usedFallback: boolean
-  if (keywordsToMatch.length === 0) {
-    sample = allItems.slice(0, SAMPLE_SIZE)
-    usedFallback = false
-  } else {
-    const filtered = allItems.filter((item) => {
-      const text = `${item.title} ${item.object}`.toLowerCase()
-      return keywordsToMatch.some((kw) => text.includes(kw))
-    })
-    // A small filtered set is still valid; only fall back when it's very thin.
-    usedFallback = filtered.length < MIN_FILTERED
-    sample = (usedFallback ? allItems : filtered).slice(0, SAMPLE_SIZE)
-  }
-
+  // 7. Classify with Claude (unchanged).
   const classifications = await classifyItems(sample, companyProfile)
   const byId = new Map(classifications.map((c) => [c.id, c]))
 
