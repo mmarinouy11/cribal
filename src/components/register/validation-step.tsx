@@ -17,6 +17,7 @@ interface ValidationStepProps {
   capabilities: string[]
   relevantKeywords: string[]
   feeds: string[]
+  generating: boolean
   onFeedsChange: (feeds: string[]) => void
   appliedExclusions: string[]
   onAppliedExclusionsChange: (keywords: string[]) => void
@@ -28,6 +29,7 @@ export function ValidationStep({
   capabilities,
   relevantKeywords,
   feeds,
+  generating,
   onFeedsChange,
   appliedExclusions,
   onAppliedExclusionsChange,
@@ -48,6 +50,12 @@ export function ValidationStep({
   // (Re)load + classify the sample whenever the active categories change.
   useEffect(() => {
     const id = ++requestRef.current
+    // Wait until config generation has finished: fetching mid-generation would
+    // run with an empty/incomplete keyword list and produce an irrelevant sample.
+    if (generating) {
+      setLoading(true)
+      return
+    }
     if (feeds.length === 0) {
       setSample([])
       setMarks({})
@@ -59,6 +67,11 @@ export function ValidationStep({
     setLoading(true)
     const timer = setTimeout(async () => {
       try {
+        console.log(
+          '[CRIBAL][VALIDACION][client] Enviando keywords:',
+          relevantKeywords.length,
+          JSON.stringify(relevantKeywords.slice(0, 5))
+        )
         const result = await fetchAndClassifyValidationSample(feeds, relevantKeywords, {
           name: companyName,
           description,
@@ -90,7 +103,7 @@ export function ValidationStep({
     }, 300)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [feedsKey, keywordsKey])
+  }, [feedsKey, keywordsKey, generating])
 
   const relevantItems = sample.filter((i) => marks[i.id] === 'relevant')
   const notRelevantItems = sample.filter((i) => marks[i.id] === 'not_relevant')

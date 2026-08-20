@@ -178,6 +178,13 @@ export async function fetchAndClassifyValidationSample(
   relevantKeywords: string[],
   companyProfile: CompanyProfileInput
 ): Promise<{ items: ClassifiedValidationItem[]; usedFallback: boolean }> {
+  // Diagnostic: confirm exactly which keywords reached the server action.
+  console.log(
+    '[CRIBAL][VALIDACION] Keywords recibidos:',
+    relevantKeywords.length,
+    JSON.stringify(relevantKeywords.slice(0, 5))
+  )
+
   // 1. Normalize to family-level feeds only (dedupe, drop non-family feeds).
   const familyFeeds = [
     ...new Set(feeds.map(normalizeFeedToFamily).filter((f) => f.includes('/familia/'))),
