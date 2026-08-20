@@ -6,6 +6,17 @@ import Parser from 'rss-parser'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
+import { normalizeFeedToFamily } from '@/lib/arce/catalog'
+
+/**
+ * Force feeds to family-level and drop anything that is not a family feed. ARCE
+ * only filters by family (subfamily/text params are ignored), so this guarantees
+ * we never store or suggest a subfamily/text feed regardless of the AI output.
+ */
+function toFamilyFeeds(feeds: string[]): string[] {
+  const normalized = feeds.map(normalizeFeedToFamily).filter((f) => f.includes('/familia/'))
+  return [...new Set(normalized)]
+}
 
 async function requireCompanyId(): Promise<string> {
   const session = await auth()
@@ -19,12 +30,13 @@ const CONFIG_SYSTEM_PROMPT = `Sos un experto en el sistema de compras estatales 
 Tu tarea es configurar un sistema de alertas de licitaciones para una empresa según su perfil.
 
 El sistema de ARCE organiza las licitaciones en una jerarquía de 4 niveles: Familia → Subfamilia → Clase → Subclase.
-Los feeds RSS pueden filtrarse por familia y subfamilia usando estas URLs:
+Sin embargo, el ÚNICO filtro real del feed RSS es la FAMILIA:
 - Por familia: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/{id_familia}
-- Por subfamilia: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/{id_familia}/subfamilia/{id_subfamilia}
-- Por texto libre: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/texto/{término_sin_espacios}
+El catálogo de abajo (con subfamilias y clases) es solo para que entiendas qué contiene
+cada familia y elijas la familia correcta y buenas relevantKeywords; NO construyas URLs
+con subfamilia ni con texto (ARCE ignora esos parámetros).
 
-CATÁLOGO COMPLETO DE ARCE:
+CATÁLOGO COMPLETO DE ARCE (referencia para elegir familia y keywords, NO para armar URLs):
 
 FAMILIA 2 — MATERIALES Y SUMINISTROS
   Subfamilia 1: Alimentos y productos agropecuarios, forestales y marítimos
@@ -123,33 +135,37 @@ FAMILIA 10 — INFRAESTRUCTURA TECNOLÓGICA (hardware e insumos TIC)
 FAMILIA 12 — PRODUCTOS EXCLUSIVOS ENTES (UTE, ANCAP, ANTEL)
   Solo para empresas que proveen a UTE (electricidad), ANCAP (combustibles) o ANTEL (telecomunicaciones)
 
-NOTAS IMPORTANTES:
-- El sistema sirve a empresas de CUALQUIER rubro. No asumas tecnología ni ningún
-  rubro por defecto: inferí el rubro real a partir del perfil de la empresa y elegí
-  las familias/subfamilias que le correspondan.
-- Familia 2 subfamilia 1 = alimentos → para proveedores de alimentos al Estado
-- Familia 3 subfamilia 7 = mantenimiento y reparaciones → para empresas de servicio técnico
-- Familia 3 subfamilia 8 = servicios profesionales → para consultoras, médicos, diseñadores
-- Familia 3 subfamilia 9 clase 1 = limpieza → para empresas de limpieza
-- Familia 6 = obras → para constructoras, ingeniería civil
-- Familia 4 subfamilia 5 clase 5 = bicicletas (compra de vehículos nuevos)
-- Familia 2 subfamilia 12 clase 1 subclase 18 = repuestos bicicletas → muy específico
-- Familia 3 subfamilia 10 = servicios TIC (desarrollo software, soporte, cloud) → para empresas de TI
-- Familia 10 subfamilia 43 = hardware TIC (computadoras, licencias) → para resellers/distribuidores TIC
-- REGLA DE PRECISIÓN (IMPORTANTE): usá SIEMPRE URLs a nivel SUBFAMILIA
-  (…/familia/{f}/subfamilia/{s}) cuando exista una subfamilia que corresponda al
-  rubro. Una URL a nivel familia (…/familia/{f}) trae TODA la familia (miles de
-  llamados no relacionados) y hace la muestra irrelevante. Usá familia completa
-  SOLO si ninguna subfamilia aplica. Ante la duda, elegí la subfamilia más específica.
-- Complementá con feeds de texto libre (…/texto/{término}) para rubros muy puntuales
-  (ej: /texto/bicicleta, /texto/ciclismo).
+REGLAS CRÍTICAS PARA rssFeeds:
+- Usar SIEMPRE URLs a nivel familia: https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/{N}
+- NUNCA incluir subfamilia en la URL — ARCE ignora ese parámetro y devuelve resultados incorrectos
+- NUNCA incluir /texto/{keyword} — ARCE ignora ese parámetro también
+- El filtrado fino por rubro se hace mediante relevantKeywords, no mediante la URL del feed
+- Sugerir entre 1 y 3 familias máximo — las más relevantes para el rubro de la empresa
+- Si el rubro encaja en múltiples familias, priorizar las que tengan más volumen de licitaciones relevantes
+- El sistema sirve a empresas de CUALQUIER rubro. No asumas tecnología ni ningún rubro por defecto.
+
+Familias disponibles (usar solo el número de familia en la URL):
+2 → Materiales y Suministros (alimentos, repuestos, insumos, textiles, químicos, herramientas)
+3 → Servicios No Personales (consultoría, mantenimiento, limpieza, vigilancia, TIC, transporte)
+4 → Maquinaria y Equipos (vehículos, maquinaria industrial, equipos médicos, mobiliario, bicicletas)
+5 → Bienes de Uso Existentes (compra de activos usados)
+6 → Obras (construcción, vialidad, edificaciones, saneamiento)
+10 → Infraestructura Tecnológica (hardware TIC, computadoras, licencias de software)
+12 → Productos Exclusivos Entes UTE/ANCAP/ANTEL
+
+Ejemplos correctos:
+- Empresa de bicicletas: ["https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/2", "https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/4"]
+- Empresa de software: ["https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/3", "https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/10"]
+- Constructora: ["https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/6", "https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/4"]
+- Proveedor de alimentos: ["https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/2"]
+- Empresa de limpieza: ["https://www.comprasestatales.gub.uy/consultas/rss/tipo-pub/ALL/familia/3"]
 
 Respondé ÚNICAMENTE con un objeto JSON válido, sin markdown, sin texto adicional:
 {
   "relevantKeywords": string[],     // 10-20 términos en español específicos para este rubro
   "excludedKeywords": string[],     // 5-15 términos que claramente NO aplican
   "excludedProducts": string[],     // 0-5 marcas/productos específicos a excluir (puede ser [])
-  "rssFeeds": string[],             // 1-5 URLs de feeds — a nivel SUBFAMILIA siempre que exista una que aplique; familia completa solo si ninguna subfamilia corresponde
+  "rssFeeds": string[],             // 1-3 URLs de feeds SOLO a nivel familia (…/tipo-pub/ALL/familia/{N})
   "minimumScore": number,           // Entre 6 y 8
   "reasoning": string               // 2-3 oraciones en español explicando las elecciones
 }`
@@ -203,14 +219,14 @@ function parseGeneratedConfig(text: string): GeneratedCompanyConfig {
   const rawScore = typeof obj.minimumScore === 'number' ? obj.minimumScore : 7
   const minimumScore = Math.min(8, Math.max(6, Math.round(rawScore)))
 
+  // Enforce family-level feeds in code, no matter what the model returned.
+  const familyFeeds = toFamilyFeeds(stringArray(obj.rssFeeds))
+
   return {
     relevantKeywords: stringArray(obj.relevantKeywords),
     excludedKeywords: stringArray(obj.excludedKeywords),
     excludedProducts: stringArray(obj.excludedProducts),
-    rssFeeds:
-      stringArray(obj.rssFeeds).length > 0
-        ? stringArray(obj.rssFeeds)
-        : SAFE_CONFIG_DEFAULTS.rssFeeds,
+    rssFeeds: familyFeeds.length > 0 ? familyFeeds : SAFE_CONFIG_DEFAULTS.rssFeeds,
     minimumScore,
     reasoning: typeof obj.reasoning === 'string' ? obj.reasoning : SAFE_CONFIG_DEFAULTS.reasoning,
   }

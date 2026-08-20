@@ -91,6 +91,19 @@ export function feedToAdjudicationUrl(url: string): string {
   return url
 }
 
+/**
+ * Reduce any ARCE feed URL to its family-level form. ARCE's RSS endpoint only
+ * filters by family: subfamily and free-text params are ignored (they return
+ * the whole family / the 1000 most recent items). So the only meaningful feed is
+ * `.../tipo-pub/ALL/familia/{N}`. Returns the family feed when a family number is
+ * present; otherwise returns the URL unchanged (callers drop non-family feeds).
+ */
+export function normalizeFeedToFamily(url: string): string {
+  const match = url.match(/\/familia\/(\d+)/)
+  if (!match) return url
+  return familyFeedUrl(Number(match[1]))
+}
+
 function parseFeed(url: string): { familia?: number; subfamilia?: number; texto?: string } {
   const sub = url.match(/\/familia\/(\d+)\/subfamilia\/(\d+)/)
   if (sub) return { familia: Number(sub[1]), subfamilia: Number(sub[2]) }

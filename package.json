@@ -14,6 +14,7 @@
     "recompute:niches": "ts-node src/lib/scripts/recompute-niches.ts",
     "delete:company": "ts-node src/lib/scripts/delete-company.ts",
     "audit:orphans": "ts-node src/lib/scripts/audit-orphans.ts",
+    "fix:feeds": "ts-node src/lib/scripts/fix-feeds.ts",
     "scheduler": "ts-node src/app/api/scheduler.ts",
     "postinstall": "prisma generate"
   },
