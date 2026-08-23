@@ -222,11 +222,20 @@ export function ValidationStep({
               según tu perfil; podés ajustar cualquier marcación.
             </p>
 
-            {usedFallback && (
+            {usedFallback ? (
               <p className="rounded-lg border border-[#fde68a] bg-[#fffbeb] px-3 py-2 text-xs text-[#92400e]">
-                No encontramos suficientes licitaciones que coincidan exactamente con tu perfil.
-                Mostramos una muestra más amplia para que puedas ajustar los filtros.
+                No encontramos licitaciones que coincidan exactamente con tu perfil. Mostramos una
+                muestra más amplia para que puedas ajustar los filtros.
               </p>
+            ) : (
+              sample.length < 5 && (
+                <p className="rounded-lg border border-[#bae6fd] bg-[#f0f9ff] px-3 py-2 text-xs text-[#0e7490]">
+                  Se encontraron {sample.length} licitación{sample.length === 1 ? '' : 'es'} que
+                  coincide{sample.length === 1 ? '' : 'n'} con tu perfil. El Estado licita pocas
+                  unidades de este tipo — igualmente el sistema te alertará cuando aparezca una
+                  nueva.
+                </p>
+              )
             )}
 
             <div className="space-y-2">
