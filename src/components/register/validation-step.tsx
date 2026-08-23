@@ -6,6 +6,7 @@ import {
   inferExclusionKeywords,
   categoriesToDrop,
   type ValidationItem,
+  type ClassifiedValidationItem,
   type Mark,
 } from '@/lib/register/validation'
 import { feedToLabel, feedToDetailedLabel } from '@/lib/arce/catalog'
@@ -21,6 +22,9 @@ interface ValidationStepProps {
   onFeedsChange: (feeds: string[]) => void
   appliedExclusions: string[]
   onAppliedExclusionsChange: (keywords: string[]) => void
+  // Reports the reviewed sample with the effective relevance (user mark wins),
+  // so the wizard can persist relevant + open items as opportunities on submit.
+  onValidatedItemsChange: (items: ClassifiedValidationItem[]) => void
 }
 
 export function ValidationStep({
@@ -33,6 +37,7 @@ export function ValidationStep({
   onFeedsChange,
   appliedExclusions,
   onAppliedExclusionsChange,
+  onValidatedItemsChange,
 }: ValidationStepProps) {
   const [sample, setSample] = useState<ValidationItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -108,6 +113,19 @@ export function ValidationStep({
   const relevantItems = sample.filter((i) => marks[i.id] === 'relevant')
   const notRelevantItems = sample.filter((i) => marks[i.id] === 'not_relevant')
   const canAnalyze = relevantItems.length > 0 && notRelevantItems.length > 0
+
+  // Report the reviewed items upward with the effective relevance (the user's
+  // mark overrides Claude's suggestion), so the wizard can persist relevant +
+  // open items as opportunities when the account is created.
+  useEffect(() => {
+    const validated: ClassifiedValidationItem[] = sample.map((item) => ({
+      ...item,
+      aiRelevant: marks[item.id] === 'relevant',
+      aiReason: aiReasons[item.id] ?? '',
+    }))
+    onValidatedItemsChange(validated)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sample, marks, aiReasons])
 
   function addFeed(url: string) {
     if (!feeds.includes(url)) onFeedsChange([...feeds, url])

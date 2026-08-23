@@ -10,6 +10,7 @@ import { registerCompany } from '@/lib/actions/auth'
 import { generateCompanyConfig, type GeneratedCompanyConfig } from '@/lib/actions/config'
 import { lookupCompany } from '@/lib/actions/company-lookup'
 import { ValidationStep } from '@/components/register/validation-step'
+import type { ClassifiedValidationItem } from '@/lib/register/validation'
 import { feedToLabel } from '@/lib/arce/catalog'
 
 const COUNTRIES = [
@@ -64,6 +65,7 @@ export default function RegisterPage() {
   const [editing, setEditing] = useState(false)
   // Step 4 (validation)
   const [appliedExclusions, setAppliedExclusions] = useState<string[]>([])
+  const [validationItems, setValidationItems] = useState<ClassifiedValidationItem[]>([])
 
   const EMPTY_CONFIG: GeneratedCompanyConfig = {
     relevantKeywords: [],
@@ -202,6 +204,7 @@ export default function RegisterPage() {
       excludedKeywords: finalExcludedKeywords,
       excludedProducts: config?.excludedProducts ?? [],
       rssFeeds: config?.rssFeeds ?? [],
+      validationItems,
     })
 
     if (!result.success) {
@@ -543,6 +546,7 @@ export default function RegisterPage() {
             }}
             appliedExclusions={appliedExclusions}
             onAppliedExclusionsChange={setAppliedExclusions}
+            onValidatedItemsChange={setValidationItems}
           />
         )}
 

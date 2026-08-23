@@ -4,6 +4,8 @@ import bcrypt from 'bcryptjs'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db/prisma'
 import { sendWelcomeEmail } from '@/lib/email/welcome'
+import { saveOnboardingOpportunities } from '@/lib/actions/onboarding-opportunities'
+import type { ClassifiedValidationItem } from '@/lib/register/validation'
 
 // Sentinel thrown inside the transaction when the email is already taken, so the
 // whole transaction rolls back before any row is committed.
@@ -29,6 +31,8 @@ export interface RegisterCompanyInput {
   excludedKeywords: string[]
   excludedProducts: string[]
   rssFeeds: string[]
+  // Step 4 — validation sample the user reviewed (optional)
+  validationItems?: ClassifiedValidationItem[]
 }
 
 export interface RegisterCompanyResult {
@@ -70,6 +74,7 @@ export async function registerCompany(
 
   // 3-5. Create company, profile and user atomically. Any throw rolls back all
   // three, so a company is never committed without its owning user.
+  let newCompanyId = ''
   try {
     await prisma.$transaction(async (tx) => {
       // Enforce email uniqueness first, inside the transaction, so a duplicate
@@ -112,6 +117,8 @@ export async function registerCompany(
       await tx.companyProfile.create({
         data: { companyId: company.id },
       })
+
+      newCompanyId = company.id
     })
   } catch (error) {
     // A duplicate email (sentinel, or a P2002 unique violation from a race) gets
@@ -127,7 +134,19 @@ export async function registerCompany(
     return { success: false, error: 'No se pudo crear la cuenta. Intentá nuevamente.' }
   }
 
-  // 6. Welcome email — failure here must not fail the registration.
+  // 6. Seed relevant + open tenders from onboarding as opportunities so the
+  // dashboard is not empty on first login. Failure must not fail registration.
+  try {
+    const relevantOpen = (data.validationItems ?? []).filter((i) => i.aiRelevant && i.isOpen)
+    if (relevantOpen.length > 0 && newCompanyId) {
+      await saveOnboardingOpportunities(relevantOpen, newCompanyId)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[CRIBAL][REGISTER] Error guardando oportunidades de onboarding: ${message}`)
+  }
+
+  // 7. Welcome email — failure here must not fail the registration.
   try {
     await sendWelcomeEmail({ to: email, userName, companyName })
   } catch (error) {
