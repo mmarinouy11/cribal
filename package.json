@@ -15,13 +15,16 @@
     "delete:company": "ts-node src/lib/scripts/delete-company.ts",
     "audit:orphans": "ts-node src/lib/scripts/audit-orphans.ts",
     "fix:feeds": "ts-node src/lib/scripts/fix-feeds.ts",
+    "reenrich": "ts-node src/lib/scripts/reenrich.ts",
     "scheduler": "ts-node src/app/api/scheduler.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
     "@prisma/client": "^6.19.3",
+    "@types/adm-zip": "^0.5.8",
     "@types/pdf-parse": "^1.1.5",
+    "adm-zip": "^0.6.0",
     "bcryptjs": "^3.0.3",
     "docx": "^9.7.1",
     "dotenv": "^17.4.2",

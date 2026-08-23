@@ -202,7 +202,11 @@ function findDateAfterLabel(html: string, label: string): Date | null {
 // ---------------------------------------------------------------------------
 
 function extractPliegoUrl(html: string): string | null {
-  const match = html.match(/href="([^"]*\/Pliegos\/[^"]+\.pdf)"/i)
+  // Pliego attachments can be PDF, ZIP (a PDF inside), or Word docs. Match any of
+  // them under /Pliegos/, allowing an optional query string after the extension.
+  const match = html.match(
+    /href="([^"]*\/Pliegos\/[^"]+\.(?:pdf|zip|doc|docx)(?:\?[^"]*)?)"/i
+  )
   if (!match) return null
   const href = decodeEntities(match[1])
   return href.startsWith('http') ? href : `${ARCE_BASE}${href.startsWith('/') ? '' : '/'}${href}`
