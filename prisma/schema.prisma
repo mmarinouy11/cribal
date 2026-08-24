@@ -7,6 +7,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// The ARCE article catalog, scraped by `npm run scrape:catalog`. The primary key
+// is the article code (an integer used across ARCE). familyText/subfamilyText
+// keep the source classification labels as scraped.
+model CatalogArticle {
+  id            Int      @id // ARCE article code
+  name          String
+  familyText    String?
+  subfamilyText String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("catalog_articles")
+}
+
 model CompanyConfig {
   id                    String             @id @default(uuid())
   companyName           String
