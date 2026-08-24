@@ -21,7 +21,7 @@
     "reenrich": "ts-node src/lib/scripts/reenrich.ts",
     "scrape:catalog": "ts-node src/lib/scripts/scrape-catalog.ts",
     "scheduler": "ts-node src/app/api/scheduler.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate && PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers npx playwright install chromium --with-deps"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
