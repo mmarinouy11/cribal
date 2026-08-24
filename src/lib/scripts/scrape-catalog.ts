@@ -1,6 +1,11 @@
 import 'dotenv/config'
-import { chromium, type Page } from 'playwright'
+import type { Page } from 'playwright'
 import { prisma } from '../db/prisma'
+
+// Chromium is installed at build time under this persistent path (see the
+// postinstall script). Point Playwright at it before the runtime import below.
+process.env.PLAYWRIGHT_BROWSERS_PATH =
+  process.env.PLAYWRIGHT_BROWSERS_PATH || '/app/.playwright-browsers'
 
 /**
  * Scrape the complete ARCE article catalog with Playwright, iterating through
@@ -106,6 +111,7 @@ async function searchAndExtract(
 }
 
 async function scrapeCatalog(): Promise<Article[]> {
+  const { chromium } = await import('playwright')
   const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined
   const browser = await chromium.launch({ headless: true, executablePath })
   const page = await browser.newPage()
