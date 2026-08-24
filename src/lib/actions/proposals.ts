@@ -13,8 +13,18 @@ Generá una propuesta comercial completa y profesional para esta licitación.
 La propuesta debe incluir: presentación de la empresa, propuesta de valor específica
 para este llamado, descripción de la solución ofrecida, equipo y metodología,
 experiencia relevante, y propuesta económica referencial.
-Retorná el texto completo como string, en formato que se pueda incluir directamente
-en un documento Word. Usá saltos de línea para separar secciones.`
+
+Escribí la propuesta en texto plano, sin usar markdown.
+No uses asteriscos, numerales, guiones como bullets, ni ningún símbolo de formato.
+Para separar secciones usá el nombre de la sección en mayúsculas seguido de dos puntos y salto de línea.
+Ejemplo:
+RESUMEN EJECUTIVO:
+Texto del resumen aquí...
+
+PROPUESTA DE VALOR:
+Texto aquí...
+
+Retorná el texto completo como string, listo para incluir en un documento Word.`
 
 const EDIT_SYSTEM_PROMPT = `Sos un asistente especializado en propuestas comerciales para licitaciones.
 Tenés acceso al texto actual de la propuesta y al contexto de la licitación.
@@ -22,6 +32,10 @@ Cuando el usuario pida un cambio, modificá la propuesta según la instrucción
 y retorná:
 1. El texto completo de la propuesta actualizada
 2. Un mensaje breve explicando qué cambiaste
+
+La propuesta ("updatedProposal") va en texto plano, sin markdown: sin asteriscos,
+numerales, guiones como bullets ni símbolos de formato. Para las secciones usá el
+título en mayúsculas seguido de dos puntos.
 
 Respondé SOLO con JSON: { "updatedProposal": string, "message": string }`
 

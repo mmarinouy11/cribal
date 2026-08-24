@@ -15,6 +15,9 @@ const FONT = 'Calibri'
 const DEFAULT_PRIMARY = '0c1e3c'
 const DEFAULT_SECONDARY = '06b6d4'
 const GRAY_COLOR = '6b7280'
+const BODY_COLOR = '111827'
+const BODY_SIZE = 22 // half-points → 11pt
+const BODY_LINE_SPACING = 276 // 240 = single, 276 ≈ 1.15
 
 interface OpportunityDocxData {
   title: string
@@ -35,24 +38,53 @@ function normalizeHex(value: string | null | undefined, fallback: string): strin
   return /^[0-9a-fA-F]{6}$/.test(hex) ? hex.toLowerCase() : fallback
 }
 
-// Split free text into paragraphs on blank lines so lists/paragraphs survive.
-function contentParagraphs(text: string): Paragraph[] {
-  const blocks = text
+// Remove any residual Markdown so it never renders as literal characters in Word.
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/#{1,6}\s+/g, '') // ## headers
+    .replace(/\*\*([^*]+)\*\*/g, '$1') // **bold**
+    .replace(/\*([^*]+)\*/g, '$1') // *italic*
+    .replace(/^[-*+]\s+/gm, '• ') // bullet points → •
+    .replace(/^\d+\.\s+/gm, '') // numbered lists
+    .trim()
+}
+
+// A section title is a short line in ALL CAPS or one ending in a colon.
+function isSectionTitle(line: string): boolean {
+  if (line.length > 80) return false
+  if (line.endsWith(':')) return true
+  const hasLetters = /[a-záéíóúñ]/i.test(line)
+  return hasLetters && line === line.toLocaleUpperCase('es') && line.length <= 60
+}
+
+/**
+ * Turn the (markdown-stripped) proposal text into styled paragraphs: section
+ * titles as HEADING_2 in the brand primary color, body lines as normal text.
+ */
+function contentParagraphs(text: string, primary: string): Paragraph[] {
+  const lines = stripMarkdown(text)
     .split(/\n+/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
 
-  if (blocks.length === 0) {
+  if (lines.length === 0) {
     return [new Paragraph({ children: [new TextRun({ text: '—', font: FONT })] })]
   }
 
-  return blocks.map(
-    (block) =>
-      new Paragraph({
-        spacing: { after: 120 },
-        children: [new TextRun({ text: block, font: FONT })],
+  return lines.map((line) => {
+    if (isSectionTitle(line)) {
+      const heading = line.replace(/:\s*$/, '')
+      return new Paragraph({
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 200, after: 100 },
+        children: [new TextRun({ text: heading, font: FONT, color: primary, bold: true })],
       })
-  )
+    }
+    return new Paragraph({
+      spacing: { after: 100, line: BODY_LINE_SPACING },
+      children: [new TextRun({ text: line, font: FONT, color: BODY_COLOR, size: BODY_SIZE })],
+    })
+  })
 }
 
 function slugify(text: string): string {
@@ -172,7 +204,7 @@ export async function exportProposalToDocx(
       {
         children: [
           ...header,
-          ...contentParagraphs(fullText),
+          ...contentParagraphs(fullText, primary),
           new Paragraph({
             spacing: { before: 360 },
             border: {
