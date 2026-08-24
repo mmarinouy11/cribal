@@ -76,15 +76,18 @@ async function searchAndExtract(
     const response = await responsePromise
     updateBody = await response.text()
   } catch {
+    console.log('[CATALOG] Sin respuesta send-receive-updates para la búsqueda')
     return []
   }
 
   await page.waitForTimeout(1000)
 
+  console.log(`[CATALOG] Response body length: ${updateBody.length}`)
+
   const codes = [...updateBody.matchAll(/dataTable:\d+:j_id295">(\d+)<\/span>/g)]
   const names = [...updateBody.matchAll(/dataTable:\d+:j_id300">([^<]+)<\/span>/g)]
 
-  return codes
+  const articles = codes
     .map((c, i) => ({
       code: Number.parseInt(c[1], 10),
       name: names[i]?.[1]?.trim() ?? '',
@@ -92,6 +95,14 @@ async function searchAndExtract(
       subfamilyText,
     }))
     .filter((a) => Number.isFinite(a.code) && a.code > 0 && a.name.length > 0)
+
+  // The ICEfaces j_id numbers can change between deploys; when the known
+  // patterns match nothing, dump a sample so we can see the real structure.
+  if (articles.length === 0 && updateBody.length > 0) {
+    console.log(`[CATALOG] 0 artículos extraídos — muestra del body:\n${updateBody.slice(0, 500)}`)
+  }
+
+  return articles
 }
 
 async function scrapeCatalog(): Promise<Article[]> {
@@ -122,9 +133,24 @@ async function scrapeCatalog(): Promise<Article[]> {
       } catch {
         // No AJAX (rare) — proceed with whatever the DOM has.
       }
-      await page.waitForTimeout(2000)
+
+      // The subfamily <select> is repopulated by ICEfaces AFTER the AJAX
+      // response; wait until it actually has options before reading them.
+      await page
+        .waitForFunction(
+          () => {
+            const sel = document.querySelector(
+              'select[name="selectCatalogForm:subFamilia"]'
+            ) as HTMLSelectElement | null
+            return sel !== null && sel.options.length > 1
+          },
+          { timeout: 10000 }
+        )
+        .catch(() => null) // null on timeout — family genuinely has no subfamilies
+      await page.waitForTimeout(1000)
 
       const subfamilyOptions = await readOptions(page, SUBFAMILIA_SELECT)
+      console.log(`[CATALOG] Familia ${family.text}: ${subfamilyOptions.length} subfamilias`)
 
       if (subfamilyOptions.length === 0) {
         const articles = await searchAndExtract(page, family.text, '')
