@@ -90,23 +90,28 @@ async function searchAndExtract(
 
   console.log(`[CATALOG] Response body length: ${updateBody.length}`)
 
-  // The ICEfaces partial-response wraps each cell's content in a CDATA block:
-  //   <update address="selectCatalogForm:dataTable:0:j_id295" ...><content><![CDATA[CODE]]></content>
-  // Match the code/name cells from those CDATA blocks.
-  const codes = [
+  // Different families return the cells in different shapes: some inside an
+  // ICEfaces CDATA block, some as plain spans. Try CDATA first, fall back to the
+  // plain-span pattern when it yields nothing.
+  const cdataCodeMatches = [
     ...updateBody.matchAll(
       /address="selectCatalogForm:dataTable:\d+:j_id295"[^>]*>.*?<content><!\[CDATA\[(\d+)\]\]>/gs
     ),
   ]
-  const names = [
+  const oldCodeMatches = [...updateBody.matchAll(/dataTable:\d+:j_id295">(\d+)<\/span>/g)]
+  const codes = cdataCodeMatches.length > 0 ? cdataCodeMatches : oldCodeMatches
+
+  const cdataNameMatches = [
     ...updateBody.matchAll(
       /address="selectCatalogForm:dataTable:\d+:j_id300"[^>]*>.*?<content><!\[CDATA\[([^\]]+)\]\]>/gs
     ),
   ]
+  const oldNameMatches = [...updateBody.matchAll(/dataTable:\d+:j_id300">([^<]+)<\/span>/g)]
+  const names = cdataNameMatches.length > 0 ? cdataNameMatches : oldNameMatches
 
-  // Compare against the old (non-CDATA) pattern to catch j_id changes early.
-  const oldCount = [...updateBody.matchAll(/dataTable:\d+:j_id295">(\d+)<\/span>/g)].length
-  console.log(`[CATALOG] Matches — CDATA j_id295: ${codes.length} | patrón viejo: ${oldCount}`)
+  console.log(
+    `[CATALOG] Matches j_id295 — CDATA: ${cdataCodeMatches.length} | span: ${oldCodeMatches.length}`
+  )
 
   const articles = codes
     .map((c, i) => ({
@@ -156,12 +161,25 @@ async function scrapeCatalog(): Promise<Article[]> {
         // No AJAX (rare) — proceed with whatever the DOM has.
       }
 
-      // ICEfaces rewrites the subfamily <select>'s inner HTML via DOM
-      // manipulation that a waitForFunction on option count does not reliably
-      // observe. A fixed delay after the AJAX response is more dependable.
-      await page.waitForTimeout(3000)
-
-      const subfamilyOptions = await readOptions(page, SUBFAMILIA_SELECT)
+      // ICEfaces repopulates the subfamily <select> via innerHTML replacement,
+      // which can land well after the AJAX response. Poll a few times before
+      // giving up and treating the family as having no subfamilies.
+      let subfamilyOptions: SelectOption[] = []
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await page.waitForTimeout(2000)
+        const totalOptions = await page.evaluate(() => {
+          const sel = document.querySelector(
+            'select[name="selectCatalogForm:subFamilia"]'
+          ) as HTMLSelectElement | null
+          return sel ? sel.options.length : 0
+        })
+        console.log(
+          `[CATALOG] Select subfamilia — opciones totales incluyendo placeholder: ${totalOptions}`
+        )
+        subfamilyOptions = await readOptions(page, SUBFAMILIA_SELECT)
+        if (subfamilyOptions.length > 0) break
+        console.log(`[CATALOG] Reintento ${attempt + 1} para subfamilias...`)
+      }
       console.log(`[CATALOG] Familia ${family.text}: ${subfamilyOptions.length} subfamilias`)
 
       if (subfamilyOptions.length === 0) {
