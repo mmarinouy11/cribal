@@ -153,22 +153,33 @@ async function searchAndExtract(
     }, NEXT_BUTTON_ID)
     if (!nextEnabled) break
 
+    // Diagnostic: ICEfaces <a> paginators carry their own onclick handler.
+    const nextInfo = await page.evaluate((id: string) => {
+      const el = document.getElementById(id)
+      return { onclick: el?.getAttribute('onclick') ?? null, tagName: el?.tagName ?? null }
+    }, NEXT_BUTTON_ID)
+    console.log('[CATALOG] Next button:', JSON.stringify(nextInfo))
+
     const responsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
       timeout: 15000,
     })
+    // Click the link directly so ICEfaces' own onclick handler runs (iceSubmit
+    // with the link as the source does NOT trigger the paginator).
     await page.evaluate((id: string) => {
-      const el = document.getElementById(id)
-      if (!el) return
-      const w = window as unknown as {
-        iceSubmit: (form: Element | null, button: Element | null, event: MouseEvent) => void
-      }
-      w.iceSubmit(document.querySelector('form'), el, new MouseEvent('click'))
+      const el = document.getElementById(id) as HTMLAnchorElement | null
+      el?.click()
     }, NEXT_BUTTON_ID)
 
     try {
       const response = await responsePromise
       updateBody = await response.text()
       await page.waitForTimeout(500)
+      const firstArticle = extractArticles(updateBody, familyText, subfamilyText)[0]
+      console.log(
+        `[CATALOG] Tras click — body: ${updateBody.length} chars | primer artículo: ${
+          firstArticle ? `${firstArticle.code} ${firstArticle.name}` : '(ninguno)'
+        }`
+      )
     } catch {
       break
     }
