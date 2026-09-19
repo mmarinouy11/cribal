@@ -29,7 +29,7 @@ const CATALOG_URL =
   'https://www.comprasestatales.gub.uy/sicepublic/SearchCatalogPublic.iface?pSeleccion=S&returnUrl=aHR0cHM6Ly93d3cuY29tcHJhc2VzdGF0YWxlcy5ndWIudXkvY29uc3VsdGFzL2luZGV4L3Jlc2V0LzE='
 
 const FAMILIA_SELECT = 'select[name="selectCatalogForm:familia"]'
-const SUBFAMILIA_SELECT = 'select[name="selectCatalogForm:subFamilia"]'
+const SUBFAMILIA_SELECT = 'select[name="selectCatalogForm:subfamilia"]'
 const UPDATES_URL = 'send-receive-updates'
 
 interface Article {
@@ -169,7 +169,7 @@ async function scrapeCatalog(): Promise<Article[]> {
         await page.waitForTimeout(2000)
         const totalOptions = await page.evaluate(() => {
           const sel = document.querySelector(
-            'select[name="selectCatalogForm:subFamilia"]'
+            'select[name="selectCatalogForm:subfamilia"]'
           ) as HTMLSelectElement | null
           return sel ? sel.options.length : 0
         })
