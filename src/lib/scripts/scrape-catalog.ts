@@ -1,4 +1,6 @@
 import 'dotenv/config'
+import fs from 'node:fs'
+import path from 'node:path'
 import type { Page } from 'playwright'
 import { prisma } from '../db/prisma'
 
@@ -188,97 +190,55 @@ async function searchAndExtract(
   return allArticles
 }
 
-async function scrapeCatalog(): Promise<Article[]> {
-  const { chromium } = await import('playwright')
-  const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined
-  const browser = await chromium.launch({ headless: true, executablePath })
-  const page = await browser.newPage()
-  page.setDefaultTimeout(30000)
-
-  const allArticles: Article[] = []
-
-  try {
-    await page.goto(CATALOG_URL)
-    await page.waitForTimeout(3000)
-
-    const familyOptions = await readOptions(page, FAMILIA_SELECT)
-    console.log(`[CATALOG] ${familyOptions.length} familias`)
-
-    for (const family of familyOptions) {
-      console.log(`[CATALOG] Familia: ${family.text}`)
-
-      // Selecting a family reloads the subfamily options via AJAX.
-      const responsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
-        timeout: 15000,
-      })
-      await page.selectOption(FAMILIA_SELECT, family.value)
-      try {
-        await responsePromise
-      } catch {
-        // No AJAX (rare) — proceed with whatever the DOM has.
-      }
-
-      // ICEfaces repopulates the subfamily <select> via innerHTML replacement,
-      // which can land well after the AJAX response. Poll a few times before
-      // giving up and treating the family as having no subfamilies.
-      let subfamilyOptions: SelectOption[] = []
-      for (let attempt = 0; attempt < 5; attempt++) {
-        await page.waitForTimeout(2000)
-        const totalOptions = await page.evaluate(() => {
-          const sel = document.querySelector(
-            'select[name="selectCatalogForm:subfamilia"]'
-          ) as HTMLSelectElement | null
-          return sel ? sel.options.length : 0
-        })
-        console.log(
-          `[CATALOG] Select subfamilia — opciones totales incluyendo placeholder: ${totalOptions}`
-        )
-        subfamilyOptions = await readOptions(page, SUBFAMILIA_SELECT)
-        if (subfamilyOptions.length > 0) break
-        console.log(`[CATALOG] Reintento ${attempt + 1} para subfamilias...`)
-      }
-      console.log(`[CATALOG] Familia ${family.text}: ${subfamilyOptions.length} subfamilias`)
-
-      if (subfamilyOptions.length === 0) {
-        const articles = await searchAndExtract(page, family.text, '')
-        allArticles.push(...articles)
-        console.log(`[CATALOG]   → ${articles.length} artículos (familia completa)`)
-        continue
-      }
-
-      for (const subfamily of subfamilyOptions) {
-        console.log(`[CATALOG]   Subfamilia: ${subfamily.text}`)
-
-        const sfResponsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
-          timeout: 15000,
-        })
-        await page.selectOption(SUBFAMILIA_SELECT, subfamily.value)
-        try {
-          await sfResponsePromise
-        } catch {
-          // No AJAX — continue.
-        }
-        await page.waitForTimeout(1000)
-
-        const articles = await searchAndExtract(page, family.text, subfamily.text)
-        allArticles.push(...articles)
-        console.log(`[CATALOG]   → ${articles.length} artículos`)
-
-        // Be respectful to ARCE between searches.
-        await page.waitForTimeout(500)
-      }
-    }
-  } finally {
-    await browser.close()
-  }
-
-  return allArticles
+// One family/subfamily search to perform. subfamilyText is null for families
+// that have no subfamilies (a family-level search).
+interface CatalogTask {
+  familyText: string
+  subfamilyText: string | null
 }
 
-async function main(): Promise<void> {
-  const articles = await scrapeCatalog()
+const PROGRESS_FILE =
+  process.env.CATALOG_PROGRESS_FILE || '/app/data/catalog/scrape-progress.json'
 
-  // Deduplicate by code before saving (the same code can appear across searches).
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function taskKey(familyText: string, subfamilyText: string | null): string {
+  return `${familyText}||${subfamilyText ?? ''}`
+}
+
+/** Load resume progress: the set of completed task keys and the running total. */
+function loadProgress(): { completed: Set<string>; totalSaved: number } {
+  try {
+    const raw = fs.readFileSync(PROGRESS_FILE, 'utf8')
+    const parsed = JSON.parse(raw) as { completed?: string[]; totalSaved?: number }
+    return { completed: new Set(parsed.completed ?? []), totalSaved: parsed.totalSaved ?? 0 }
+  } catch {
+    return { completed: new Set(), totalSaved: 0 }
+  }
+}
+
+function saveProgress(
+  completed: Set<string>,
+  lastFamily: string,
+  lastSubfamily: string,
+  totalSaved: number
+): void {
+  try {
+    fs.mkdirSync(path.dirname(PROGRESS_FILE), { recursive: true })
+    fs.writeFileSync(
+      PROGRESS_FILE,
+      JSON.stringify({ lastFamily, lastSubfamily, totalSaved, completed: [...completed] }, null, 2)
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[CATALOG] No se pudo guardar el progreso: ${message}`)
+  }
+}
+
+/** Upsert a batch of articles (deduped by code). Returns how many were written. */
+async function saveArticles(articles: Article[]): Promise<number> {
   const byCode = new Map<number, Article>()
   for (const article of articles) byCode.set(article.code, article)
 
@@ -300,8 +260,165 @@ async function main(): Promise<void> {
     })
     saved += 1
   }
+  return saved
+}
 
-  console.log(`[CATALOG] ${saved} artículos únicos guardados (de ${articles.length} scrapeados)`)
+/**
+ * Poll the subfamily <select> until it repopulates (ICEfaces injects options via
+ * innerHTML after the AJAX response, which a waitForFunction misses).
+ */
+async function readSubfamilies(page: Page): Promise<SelectOption[]> {
+  let options: SelectOption[] = []
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await page.waitForTimeout(2000)
+    const totalOptions = await page.evaluate(() => {
+      const sel = document.querySelector(
+        'select[name="selectCatalogForm:subfamilia"]'
+      ) as HTMLSelectElement | null
+      return sel ? sel.options.length : 0
+    })
+    console.log(
+      `[CATALOG] Select subfamilia — opciones totales incluyendo placeholder: ${totalOptions}`
+    )
+    options = await readOptions(page, SUBFAMILIA_SELECT)
+    if (options.length > 0) break
+    console.log(`[CATALOG] Reintento ${attempt + 1} para subfamilias...`)
+  }
+  return options
+}
+
+/**
+ * Select an option by its (session-stable) visible text — the option `value`s
+ * are session-specific Base64 blobs, so matching by text is what lets us reuse a
+ * plan on a fresh page. Returns false if no option matches.
+ */
+async function selectOptionByText(page: Page, selector: string, text: string): Promise<boolean> {
+  const match = (await readOptions(page, selector)).find((o) => o.text === text)
+  if (!match) return false
+  const responsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
+    timeout: 15000,
+  })
+  await page.selectOption(selector, match.value)
+  try {
+    await responsePromise
+  } catch {
+    // No AJAX — proceed.
+  }
+  return true
+}
+
+/** Enumerate every family/subfamily search to run (one lightweight session). */
+async function enumerateTasks(page: Page): Promise<CatalogTask[]> {
+  await page.goto(CATALOG_URL)
+  await page.waitForTimeout(3000)
+
+  const familyOptions = await readOptions(page, FAMILIA_SELECT)
+  console.log(`[CATALOG] ${familyOptions.length} familias`)
+
+  const tasks: CatalogTask[] = []
+  for (const family of familyOptions) {
+    const responsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
+      timeout: 15000,
+    })
+    await page.selectOption(FAMILIA_SELECT, family.value)
+    try {
+      await responsePromise
+    } catch {
+      // No AJAX — proceed.
+    }
+    const subs = await readSubfamilies(page)
+    console.log(`[CATALOG] Familia ${family.text}: ${subs.length} subfamilias`)
+
+    if (subs.length === 0) {
+      tasks.push({ familyText: family.text, subfamilyText: null })
+    } else {
+      for (const sub of subs) tasks.push({ familyText: family.text, subfamilyText: sub.text })
+    }
+  }
+  return tasks
+}
+
+async function main(): Promise<void> {
+  const { completed, totalSaved: resumedTotal } = loadProgress()
+  let totalSaved = resumedTotal
+  if (completed.size > 0) {
+    console.log(`[CATALOG] Reanudando — ${completed.size} búsquedas ya completadas`)
+  }
+
+  const { chromium } = await import('playwright')
+  const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined
+  const browser = await chromium.launch({ headless: true, executablePath })
+
+  try {
+    // Enumerate all tasks first (light session use, one page).
+    const enumPage = await browser.newPage()
+    enumPage.setDefaultTimeout(30000)
+    let tasks: CatalogTask[]
+    try {
+      tasks = await enumerateTasks(enumPage)
+    } finally {
+      await enumPage.close()
+    }
+    console.log(`[CATALOG] ${tasks.length} búsquedas (familia/subfamilia) a procesar`)
+
+    for (const task of tasks) {
+      const key = taskKey(task.familyText, task.subfamilyText)
+      if (completed.has(key)) {
+        console.log(`[CATALOG] Saltando (ya hecho): ${key}`)
+        continue
+      }
+
+      const label = task.subfamilyText
+        ? `${task.familyText} / ${task.subfamilyText}`
+        : `${task.familyText} (familia completa)`
+      console.log(`[CATALOG] Procesando: ${label}`)
+
+      // Fresh page per task: ICEfaces' session expires under extended use, so a
+      // clean context per subfamily avoids getting stuck mid-run.
+      const page = await browser.newPage()
+      page.setDefaultTimeout(30000)
+      let articles: Article[] = []
+      try {
+        await page.goto(CATALOG_URL)
+        await page.waitForTimeout(3000)
+
+        const famOk = await selectOptionByText(page, FAMILIA_SELECT, task.familyText)
+        if (!famOk) {
+          console.warn(`[CATALOG] Familia no encontrada en página fresca: ${task.familyText}`)
+        } else {
+          if (task.subfamilyText) {
+            await readSubfamilies(page) // wait for repopulation
+            const sfOk = await selectOptionByText(page, SUBFAMILIA_SELECT, task.subfamilyText)
+            if (!sfOk) {
+              console.warn(`[CATALOG] Subfamilia no encontrada: ${task.subfamilyText}`)
+            }
+            await page.waitForTimeout(1000)
+          }
+          articles = await searchAndExtract(page, task.familyText, task.subfamilyText ?? '')
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(`[CATALOG] Error en ${key}: ${message}`)
+      } finally {
+        await page.close()
+      }
+
+      const savedNow = await saveArticles(articles)
+      totalSaved += savedNow
+      completed.add(key)
+      saveProgress(completed, task.familyText, task.subfamilyText ?? '', totalSaved)
+      console.log(
+        `[CATALOG]   → ${articles.length} scrapeados, ${savedNow} guardados (acumulado ${totalSaved})`
+      )
+
+      // Pause between subfamilies to be respectful to ARCE.
+      await sleep(1000)
+    }
+  } finally {
+    await browser.close()
+  }
+
+  console.log(`[CATALOG] Completado — ${totalSaved} artículos guardados en total`)
 }
 
 main()
