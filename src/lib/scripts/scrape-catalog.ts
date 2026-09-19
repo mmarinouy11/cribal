@@ -56,43 +56,20 @@ function readOptions(page: Page, selector: string): Promise<SelectOption[]> {
   }, selector)
 }
 
-/** Trigger the catalog search and pull the articles from the AJAX response. */
-async function searchAndExtract(
-  page: Page,
+const PAGE_SIZE = 50 // articles per catalog page
+const MAX_PAGES = 20 // ARCE caps a search at 1000 articles = 20 pages
+const NEXT_BUTTON_ID = 'selectCatalogForm:dataTableScrollerpaginator1_dataTablenext'
+
+/**
+ * Extract articles from a send-receive-updates body. Different families return
+ * the cells inside an ICEfaces CDATA block or as plain spans, so try CDATA first
+ * and fall back to the plain-span pattern.
+ */
+function extractArticles(
+  updateBody: string,
   familyText: string,
   subfamilyText: string
-): Promise<Article[]> {
-  const responsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
-    timeout: 15000,
-  })
-
-  await page.evaluate(() => {
-    const w = window as unknown as {
-      iceSubmit: (form: Element | null, button: Element | null, event: MouseEvent) => void
-    }
-    w.iceSubmit(
-      document.querySelector('form'),
-      document.querySelector('input[name="selectCatalogForm:findButton"]'),
-      new MouseEvent('click')
-    )
-  })
-
-  let updateBody = ''
-  try {
-    const response = await responsePromise
-    updateBody = await response.text()
-  } catch {
-    console.log('[CATALOG] Sin respuesta send-receive-updates para la búsqueda')
-    return []
-  }
-
-  await page.waitForTimeout(1000)
-
-  console.log(`[CATALOG] Response body length: ${updateBody.length}`)
-
-  // Different families return the cells in different shapes: some inside an
-  // ICEfaces CDATA block, some as plain spans. Try CDATA first, fall back to the
-  // plain-span pattern when it yields nothing.
+): Article[] {
   const cdataCodeMatches = [
     ...updateBody.matchAll(
       /address="selectCatalogForm:dataTable:\d+:j_id295"[^>]*>.*?<content><!\[CDATA\[(\d+)\]\]>/gs
@@ -109,11 +86,7 @@ async function searchAndExtract(
   const oldNameMatches = [...updateBody.matchAll(/dataTable:\d+:j_id300">([^<]+)<\/span>/g)]
   const names = cdataNameMatches.length > 0 ? cdataNameMatches : oldNameMatches
 
-  console.log(
-    `[CATALOG] Matches j_id295 — CDATA: ${cdataCodeMatches.length} | span: ${oldCodeMatches.length}`
-  )
-
-  const articles = codes
+  return codes
     .map((c, i) => ({
       code: Number.parseInt(c[1], 10),
       name: names[i]?.[1]?.trim() ?? '',
@@ -121,14 +94,87 @@ async function searchAndExtract(
       subfamilyText,
     }))
     .filter((a) => Number.isFinite(a.code) && a.code > 0 && a.name.length > 0)
+}
 
-  // The ICEfaces j_id numbers can change between deploys; when the known
-  // patterns match nothing, dump a sample so we can see the real structure.
-  if (articles.length === 0 && updateBody.length > 0) {
-    console.log(`[CATALOG] 0 artículos extraídos — muestra del body:\n${updateBody.slice(0, 500)}`)
+/** Click the search button via iceSubmit and return the AJAX body (empty on failure). */
+async function triggerSearch(page: Page): Promise<string> {
+  const responsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
+    timeout: 15000,
+  })
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      iceSubmit: (form: Element | null, button: Element | null, event: MouseEvent) => void
+    }
+    w.iceSubmit(
+      document.querySelector('form'),
+      document.querySelector('input[name="selectCatalogForm:findButton"]'),
+      new MouseEvent('click')
+    )
+  })
+  try {
+    const response = await responsePromise
+    return await response.text()
+  } catch {
+    console.log('[CATALOG] Sin respuesta send-receive-updates para la búsqueda')
+    return ''
+  }
+}
+
+/** Run the search and page through all results, accumulating every article. */
+async function searchAndExtract(
+  page: Page,
+  familyText: string,
+  subfamilyText: string
+): Promise<Article[]> {
+  let updateBody = await triggerSearch(page)
+  if (!updateBody) return []
+  await page.waitForTimeout(1000)
+
+  const allArticles: Article[] = []
+
+  for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
+    const articles = extractArticles(updateBody, familyText, subfamilyText)
+    allArticles.push(...articles)
+    console.log(`[CATALOG]   Página ${pageNum}: ${articles.length} artículos`)
+
+    if (articles.length === 0 && pageNum === 1 && updateBody.length > 0) {
+      console.log(
+        `[CATALOG] 0 artículos extraídos — muestra del body:\n${updateBody.slice(0, 500)}`
+      )
+    }
+
+    // A short page means we've reached the end.
+    if (articles.length < PAGE_SIZE) break
+
+    // The "next" control is an <a> when enabled, a <span> when disabled.
+    const nextEnabled = await page.evaluate((id: string) => {
+      const el = document.getElementById(id)
+      return el?.tagName === 'A'
+    }, NEXT_BUTTON_ID)
+    if (!nextEnabled) break
+
+    const responsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
+      timeout: 15000,
+    })
+    await page.evaluate((id: string) => {
+      const el = document.getElementById(id)
+      if (!el) return
+      const w = window as unknown as {
+        iceSubmit: (form: Element | null, button: Element | null, event: MouseEvent) => void
+      }
+      w.iceSubmit(document.querySelector('form'), el, new MouseEvent('click'))
+    }, NEXT_BUTTON_ID)
+
+    try {
+      const response = await responsePromise
+      updateBody = await response.text()
+      await page.waitForTimeout(500)
+    } catch {
+      break
+    }
   }
 
-  return articles
+  return allArticles
 }
 
 async function scrapeCatalog(): Promise<Article[]> {
