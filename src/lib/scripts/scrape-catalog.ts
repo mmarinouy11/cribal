@@ -32,7 +32,42 @@ const CATALOG_URL =
 
 const FAMILIA_SELECT = 'select[name="selectCatalogForm:familia"]'
 const SUBFAMILIA_SELECT = 'select[name="selectCatalogForm:subfamilia"]'
+const CLASE_SELECT = 'select[name="selectCatalogForm:clase"]'
+const SUBCLASE_SELECT = 'select[name="selectCatalogForm:subClase"]'
 const UPDATES_URL = 'send-receive-updates'
+
+const RESULT_CAP = 1000 // ARCE caps each search at 1000 results
+const TRUNCATION_MARKER = 'supera el tope máximo de registros permitidos'
+
+// Decode the HTML entities ARCE sometimes leaves in article names
+// (e.g. "DISE&Ntilde;O" → "DISEÑO"). Covers the common Spanish named entities
+// plus decimal/hex numeric references.
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ',
+  ntilde: 'ñ', Ntilde: 'Ñ',
+  aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú',
+  Aacute: 'Á', Eacute: 'É', Iacute: 'Í', Oacute: 'Ó', Uacute: 'Ú',
+  uuml: 'ü', Uuml: 'Ü', ordm: 'º', ordf: 'ª', deg: '°',
+  iexcl: '¡', iquest: '¿', middot: '·', mdash: '—', ndash: '–',
+}
+
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, body: string) => {
+    if (body[0] === '#') {
+      const code =
+        body[1] === 'x' || body[1] === 'X'
+          ? Number.parseInt(body.slice(2), 16)
+          : Number.parseInt(body.slice(1), 10)
+      return Number.isFinite(code) ? String.fromCodePoint(code) : match
+    }
+    return NAMED_ENTITIES[body] ?? match
+  })
+}
+
+/** True when a search response hit ARCE's 1000-result cap. */
+function isTruncated(body: string, collected: number): boolean {
+  return collected >= RESULT_CAP || body.includes(TRUNCATION_MARKER)
+}
 
 interface Article {
   code: number
@@ -91,7 +126,7 @@ function extractArticles(
   return codes
     .map((c, i) => ({
       code: Number.parseInt(c[1], 10),
-      name: names[i]?.[1]?.trim() ?? '',
+      name: decodeEntities(names[i]?.[1]?.trim() ?? '').trim(),
       familyText,
       subfamilyText,
     }))
@@ -127,14 +162,16 @@ async function searchAndExtract(
   page: Page,
   familyText: string,
   subfamilyText: string
-): Promise<Article[]> {
+): Promise<{ articles: Article[]; truncated: boolean }> {
   let updateBody = await triggerSearch(page)
-  if (!updateBody) return []
+  if (!updateBody) return { articles: [], truncated: false }
   await page.waitForTimeout(1000)
 
   const allArticles: Article[] = []
+  let sawCapMessage = false
 
   for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
+    if (updateBody.includes(TRUNCATION_MARKER)) sawCapMessage = true
     const articles = extractArticles(updateBody, familyText, subfamilyText)
     allArticles.push(...articles)
     console.log(`[CATALOG]   Página ${pageNum}: ${articles.length} artículos`)
@@ -155,13 +192,6 @@ async function searchAndExtract(
     }, NEXT_BUTTON_ID)
     if (!nextEnabled) break
 
-    // Diagnostic: ICEfaces <a> paginators carry their own onclick handler.
-    const nextInfo = await page.evaluate((id: string) => {
-      const el = document.getElementById(id)
-      return { onclick: el?.getAttribute('onclick') ?? null, tagName: el?.tagName ?? null }
-    }, NEXT_BUTTON_ID)
-    console.log('[CATALOG] Next button:', JSON.stringify(nextInfo))
-
     const responsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
       timeout: 15000,
     })
@@ -176,25 +206,30 @@ async function searchAndExtract(
       const response = await responsePromise
       updateBody = await response.text()
       await page.waitForTimeout(500)
-      const firstArticle = extractArticles(updateBody, familyText, subfamilyText)[0]
-      console.log(
-        `[CATALOG] Tras click — body: ${updateBody.length} chars | primer artículo: ${
-          firstArticle ? `${firstArticle.code} ${firstArticle.name}` : '(ninguno)'
-        }`
-      )
     } catch {
       break
     }
   }
 
-  return allArticles
+  const truncated = sawCapMessage || isTruncated(updateBody, allArticles.length)
+  return { articles: allArticles, truncated }
 }
 
-// One family/subfamily search to perform. subfamilyText is null for families
-// that have no subfamilies (a family-level search).
-interface CatalogTask {
+// A catalog search at some depth. Deeper levels are null until we refine into
+// them: familia → subfamilia → clase → subClase.
+interface Spec {
   familyText: string
   subfamilyText: string | null
+  claseText: string | null
+  subClaseText: string | null
+}
+
+function specKey(s: Spec): string {
+  return `${s.familyText}||${s.subfamilyText ?? ''}||${s.claseText ?? ''}||${s.subClaseText ?? ''}`
+}
+
+function specLabel(s: Spec): string {
+  return [s.familyText, s.subfamilyText, s.claseText, s.subClaseText].filter(Boolean).join(' / ')
 }
 
 const PROGRESS_FILE =
@@ -204,32 +239,50 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function taskKey(familyText: string, subfamilyText: string | null): string {
-  return `${familyText}||${subfamilyText ?? ''}`
+interface Progress {
+  completed: Set<string> // spec keys fully handled (searched; children enqueued if truncated)
+  refined: Set<string> // subfamily/clase keys already expanded into children
+  pending: Spec[] // remaining work queue (incl. generated child specs) for mid-DFS resume
+  totalSaved: number
 }
 
-/** Load resume progress: the set of completed task keys and the running total. */
-function loadProgress(): { completed: Set<string>; totalSaved: number } {
+/** Load resume progress. */
+function loadProgress(): Progress {
   try {
     const raw = fs.readFileSync(PROGRESS_FILE, 'utf8')
-    const parsed = JSON.parse(raw) as { completed?: string[]; totalSaved?: number }
-    return { completed: new Set(parsed.completed ?? []), totalSaved: parsed.totalSaved ?? 0 }
+    const parsed = JSON.parse(raw) as {
+      completed?: string[]
+      refined?: string[]
+      pending?: Spec[]
+      totalSaved?: number
+    }
+    return {
+      completed: new Set(parsed.completed ?? []),
+      refined: new Set(parsed.refined ?? []),
+      pending: parsed.pending ?? [],
+      totalSaved: parsed.totalSaved ?? 0,
+    }
   } catch {
-    return { completed: new Set(), totalSaved: 0 }
+    return { completed: new Set(), refined: new Set(), pending: [], totalSaved: 0 }
   }
 }
 
-function saveProgress(
-  completed: Set<string>,
-  lastFamily: string,
-  lastSubfamily: string,
-  totalSaved: number
-): void {
+function saveProgress(progress: Progress, queue: Spec[], lastSpecLabel: string): void {
   try {
     fs.mkdirSync(path.dirname(PROGRESS_FILE), { recursive: true })
     fs.writeFileSync(
       PROGRESS_FILE,
-      JSON.stringify({ lastFamily, lastSubfamily, totalSaved, completed: [...completed] }, null, 2)
+      JSON.stringify(
+        {
+          lastSpec: lastSpecLabel,
+          totalSaved: progress.totalSaved,
+          completed: [...progress.completed],
+          refined: [...progress.refined],
+          pending: queue,
+        },
+        null,
+        2
+      )
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -264,27 +317,32 @@ async function saveArticles(articles: Article[]): Promise<number> {
 }
 
 /**
- * Poll the subfamily <select> until it repopulates (ICEfaces injects options via
- * innerHTML after the AJAX response, which a waitForFunction misses).
+ * Poll a dependent <select> (subfamily / clase / subClase) until it repopulates
+ * — ICEfaces injects the options via innerHTML after the AJAX response, which a
+ * waitForFunction on option count misses.
  */
-async function readSubfamilies(page: Page): Promise<SelectOption[]> {
+async function readLevelOptions(
+  page: Page,
+  selector: string,
+  label: string
+): Promise<SelectOption[]> {
   let options: SelectOption[] = []
   for (let attempt = 0; attempt < 5; attempt++) {
     await page.waitForTimeout(2000)
-    const totalOptions = await page.evaluate(() => {
-      const sel = document.querySelector(
-        'select[name="selectCatalogForm:subfamilia"]'
-      ) as HTMLSelectElement | null
-      return sel ? sel.options.length : 0
-    })
-    console.log(
-      `[CATALOG] Select subfamilia — opciones totales incluyendo placeholder: ${totalOptions}`
-    )
-    options = await readOptions(page, SUBFAMILIA_SELECT)
+    const totalOptions = await page.evaluate((sel: string) => {
+      const el = document.querySelector(sel) as HTMLSelectElement | null
+      return el ? el.options.length : 0
+    }, selector)
+    console.log(`[CATALOG] Select ${label} — opciones totales incluyendo placeholder: ${totalOptions}`)
+    options = await readOptions(page, selector)
     if (options.length > 0) break
-    console.log(`[CATALOG] Reintento ${attempt + 1} para subfamilias...`)
+    console.log(`[CATALOG] Reintento ${attempt + 1} para ${label}...`)
   }
   return options
+}
+
+function readSubfamilies(page: Page): Promise<SelectOption[]> {
+  return readLevelOptions(page, SUBFAMILIA_SELECT, 'subfamilia')
 }
 
 /**
@@ -307,15 +365,15 @@ async function selectOptionByText(page: Page, selector: string, text: string): P
   return true
 }
 
-/** Enumerate every family/subfamily search to run (one lightweight session). */
-async function enumerateTasks(page: Page): Promise<CatalogTask[]> {
+/** Enumerate the initial family/subfamily specs (one lightweight session). */
+async function enumerateSpecs(page: Page): Promise<Spec[]> {
   await page.goto(CATALOG_URL)
   await page.waitForTimeout(3000)
 
   const familyOptions = await readOptions(page, FAMILIA_SELECT)
   console.log(`[CATALOG] ${familyOptions.length} familias`)
 
-  const tasks: CatalogTask[] = []
+  const specs: Spec[] = []
   for (const family of familyOptions) {
     const responsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
       timeout: 15000,
@@ -330,95 +388,243 @@ async function enumerateTasks(page: Page): Promise<CatalogTask[]> {
     console.log(`[CATALOG] Familia ${family.text}: ${subs.length} subfamilias`)
 
     if (subs.length === 0) {
-      tasks.push({ familyText: family.text, subfamilyText: null })
+      specs.push({ familyText: family.text, subfamilyText: null, claseText: null, subClaseText: null })
     } else {
-      for (const sub of subs) tasks.push({ familyText: family.text, subfamilyText: sub.text })
+      for (const sub of subs) {
+        specs.push({ familyText: family.text, subfamilyText: sub.text, claseText: null, subClaseText: null })
+      }
     }
   }
-  return tasks
+  return specs
+}
+
+interface SpecResult {
+  articles: Article[]
+  truncated: boolean
+  // The next-finer level to refine into when truncated, and its option texts.
+  childField: 'claseText' | 'subClaseText' | null
+  childOptions: string[]
+}
+
+/**
+ * Run one catalog search on a fresh page: select the family and whatever deeper
+ * levels the spec fixes, read the next-finer level's options (for refinement if
+ * truncated), then search and paginate. Fresh page per spec because ICEfaces'
+ * session expires under extended use.
+ */
+async function runSpec(
+  browser: import('playwright').Browser,
+  spec: Spec
+): Promise<SpecResult> {
+  const empty: SpecResult = { articles: [], truncated: false, childField: null, childOptions: [] }
+  const page = await browser.newPage()
+  page.setDefaultTimeout(30000)
+  try {
+    await page.goto(CATALOG_URL)
+    await page.waitForTimeout(3000)
+
+    if (!(await selectOptionByText(page, FAMILIA_SELECT, spec.familyText))) {
+      console.warn(`[CATALOG] Familia no encontrada en página fresca: ${spec.familyText}`)
+      return empty
+    }
+    if (spec.subfamilyText) {
+      await readLevelOptions(page, SUBFAMILIA_SELECT, 'subfamilia')
+      if (!(await selectOptionByText(page, SUBFAMILIA_SELECT, spec.subfamilyText))) {
+        console.warn(`[CATALOG] Subfamilia no encontrada: ${spec.subfamilyText}`)
+        return empty
+      }
+      await page.waitForTimeout(1000)
+    }
+    if (spec.claseText) {
+      await readLevelOptions(page, CLASE_SELECT, 'clase')
+      if (!(await selectOptionByText(page, CLASE_SELECT, spec.claseText))) {
+        console.warn(`[CATALOG] Clase no encontrada: ${spec.claseText}`)
+        return empty
+      }
+      await page.waitForTimeout(1000)
+    }
+    if (spec.subClaseText) {
+      await readLevelOptions(page, SUBCLASE_SELECT, 'subclase')
+      if (!(await selectOptionByText(page, SUBCLASE_SELECT, spec.subClaseText))) {
+        console.warn(`[CATALOG] Subclase no encontrada: ${spec.subClaseText}`)
+        return empty
+      }
+      await page.waitForTimeout(1000)
+    }
+
+    // Decide which finer level exists for refinement, and read its options now
+    // (before the search, since the result submit can disturb the filters).
+    let childField: SpecResult['childField'] = null
+    let childSelector = ''
+    let childLabel = ''
+    if (spec.subfamilyText && !spec.claseText) {
+      childField = 'claseText'
+      childSelector = CLASE_SELECT
+      childLabel = 'clase'
+    } else if (spec.claseText && !spec.subClaseText) {
+      childField = 'subClaseText'
+      childSelector = SUBCLASE_SELECT
+      childLabel = 'subclase'
+    }
+    const childOptions = childField
+      ? (await readLevelOptions(page, childSelector, childLabel)).map((o) => o.text)
+      : []
+
+    const { articles, truncated } = await searchAndExtract(
+      page,
+      spec.familyText,
+      spec.subfamilyText ?? ''
+    )
+    return { articles, truncated, childField, childOptions }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[CATALOG] Error en ${specLabel(spec)}: ${message}`)
+    return empty
+  } finally {
+    await page.close()
+  }
+}
+
+/**
+ * One-off repair: decode HTML entities left in article names by earlier runs
+ * (e.g. "DISE&Ntilde;O" → "DISEÑO"). Runs at startup before scraping.
+ */
+async function fixExistingNames(): Promise<void> {
+  const rows = await prisma.catalogArticle.findMany({
+    where: { name: { contains: '&' } },
+    select: { id: true, name: true },
+  })
+  let fixed = 0
+  for (const row of rows) {
+    if (!/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/.test(row.name)) continue
+    const decoded = decodeEntities(row.name).trim()
+    if (decoded && decoded !== row.name) {
+      await prisma.catalogArticle.update({ where: { id: row.id }, data: { name: decoded } })
+      fixed += 1
+    }
+  }
+  if (fixed > 0) console.log(`[CATALOG] Nombres con entidades HTML corregidos: ${fixed}`)
+}
+
+/**
+ * Bridge pre-refinement progress files: old entries used 2-part keys
+ * (familia||subfamilia); migrate them to the 4-part spec form, and re-open any
+ * subfamily whose DB count is at the cap (truncated but saved as complete before
+ * class-level refinement existed) so it gets refined this run.
+ */
+async function migrateAndPrune(progress: Progress): Promise<void> {
+  const migrated = new Set<string>()
+  for (const key of progress.completed) {
+    const parts = key.split('||')
+    migrated.add(parts.length === 2 ? `${parts[0]}||${parts[1]}||||` : key)
+  }
+  progress.completed = migrated
+
+  for (const key of [...progress.completed]) {
+    const [family, subfamily, clase, subclase] = key.split('||')
+    const isSubfamilyLevel = Boolean(subfamily) && !clase && !subclase
+    if (!isSubfamilyLevel || progress.refined.has(key)) continue
+    const count = await prisma.catalogArticle.count({
+      where: { familyText: family, subfamilyText: subfamily },
+    })
+    if (count >= RESULT_CAP) {
+      progress.completed.delete(key)
+      console.log(`[CATALOG] Re-scrape por tope (${count}≥${RESULT_CAP}): ${family} / ${subfamily}`)
+    }
+  }
 }
 
 async function main(): Promise<void> {
-  const { completed, totalSaved: resumedTotal } = loadProgress()
-  let totalSaved = resumedTotal
-  if (completed.size > 0) {
-    console.log(`[CATALOG] Reanudando — ${completed.size} búsquedas ya completadas`)
+  const progress = loadProgress()
+  if (progress.completed.size > 0) {
+    console.log(
+      `[CATALOG] Reanudando — ${progress.completed.size} búsquedas completadas, ${progress.refined.size} refinadas`
+    )
   }
+
+  await fixExistingNames()
+  await migrateAndPrune(progress)
 
   const { chromium } = await import('playwright')
   const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined
   const browser = await chromium.launch({ headless: true, executablePath })
 
-  try {
-    // Enumerate all tasks first (light session use, one page).
-    const enumPage = await browser.newPage()
-    enumPage.setDefaultTimeout(30000)
-    let tasks: CatalogTask[]
-    try {
-      tasks = await enumerateTasks(enumPage)
-    } finally {
-      await enumPage.close()
-    }
-    console.log(`[CATALOG] ${tasks.length} búsquedas (familia/subfamilia) a procesar`)
+  const stillTruncated: string[] = []
 
-    for (const task of tasks) {
-      const key = taskKey(task.familyText, task.subfamilyText)
-      if (completed.has(key)) {
-        console.log(`[CATALOG] Saltando (ya hecho): ${key}`)
+  try {
+    // Resume a mid-DFS run from the persisted queue; otherwise enumerate fresh.
+    let queue: Spec[]
+    if (progress.pending.length > 0) {
+      queue = progress.pending
+      console.log(`[CATALOG] Reanudando cola — ${queue.length} búsquedas pendientes`)
+    } else {
+      const enumPage = await browser.newPage()
+      enumPage.setDefaultTimeout(30000)
+      try {
+        queue = await enumerateSpecs(enumPage)
+      } finally {
+        await enumPage.close()
+      }
+      console.log(`[CATALOG] ${queue.length} búsquedas iniciales (familia/subfamilia)`)
+    }
+
+    while (queue.length > 0) {
+      const spec = queue.shift() as Spec
+      const key = specKey(spec)
+      if (progress.completed.has(key)) {
+        saveProgress(progress, queue, specLabel(spec))
         continue
       }
 
-      const label = task.subfamilyText
-        ? `${task.familyText} / ${task.subfamilyText}`
-        : `${task.familyText} (familia completa)`
-      console.log(`[CATALOG] Procesando: ${label}`)
+      console.log(`[CATALOG] Procesando: ${specLabel(spec)}`)
+      const result = await runSpec(browser, spec)
+      const savedNow = await saveArticles(result.articles)
+      progress.totalSaved += savedNow
 
-      // Fresh page per task: ICEfaces' session expires under extended use, so a
-      // clean context per subfamily avoids getting stuck mid-run.
-      const page = await browser.newPage()
-      page.setDefaultTimeout(30000)
-      let articles: Article[] = []
-      try {
-        await page.goto(CATALOG_URL)
-        await page.waitForTimeout(3000)
-
-        const famOk = await selectOptionByText(page, FAMILIA_SELECT, task.familyText)
-        if (!famOk) {
-          console.warn(`[CATALOG] Familia no encontrada en página fresca: ${task.familyText}`)
-        } else {
-          if (task.subfamilyText) {
-            await readSubfamilies(page) // wait for repopulation
-            const sfOk = await selectOptionByText(page, SUBFAMILIA_SELECT, task.subfamilyText)
-            if (!sfOk) {
-              console.warn(`[CATALOG] Subfamilia no encontrada: ${task.subfamilyText}`)
-            }
-            await page.waitForTimeout(1000)
-          }
-          articles = await searchAndExtract(page, task.familyText, task.subfamilyText ?? '')
+      if (result.truncated && result.childField && result.childOptions.length > 0) {
+        const levelName = result.childField === 'claseText' ? 'clase' : 'subclase'
+        console.log(
+          `[CATALOG] Subfamilia ${specLabel(spec)} truncada → refinando por ${levelName} (${result.childOptions.length} ${levelName}s).`
+        )
+        const children: Spec[] = result.childOptions.map((text) => ({
+          ...spec,
+          [result.childField as 'claseText' | 'subClaseText']: text,
+        }))
+        // Process children next (DFS) so a truncated branch is fully refined
+        // before moving on — keeps progress/logs coherent.
+        queue.unshift(...children)
+        progress.refined.add(key)
+        progress.completed.add(key)
+      } else {
+        progress.completed.add(key)
+        if (result.truncated) {
+          // Truncated with no finer level left — a genuine coverage gap.
+          stillTruncated.push(specLabel(spec))
+          console.log(`[CATALOG] ⚠ ${specLabel(spec)} sigue truncada y no hay nivel más fino`)
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        console.error(`[CATALOG] Error en ${key}: ${message}`)
-      } finally {
-        await page.close()
       }
 
-      const savedNow = await saveArticles(articles)
-      totalSaved += savedNow
-      completed.add(key)
-      saveProgress(completed, task.familyText, task.subfamilyText ?? '', totalSaved)
+      saveProgress(progress, queue, specLabel(spec))
       console.log(
-        `[CATALOG]   → ${articles.length} scrapeados, ${savedNow} guardados (acumulado ${totalSaved})`
+        `[CATALOG]   → ${result.articles.length} scrapeados, ${savedNow} guardados (acumulado ${progress.totalSaved})`
       )
 
-      // Pause between subfamilies to be respectful to ARCE.
+      // Pause between searches to be respectful to ARCE.
       await sleep(1000)
     }
   } finally {
     await browser.close()
   }
 
-  console.log(`[CATALOG] Completado — ${totalSaved} artículos guardados en total`)
+  console.log(`[CATALOG] Completado — ${progress.totalSaved} artículos guardados en total`)
+  if (stillTruncated.length > 0) {
+    console.log(
+      `[CATALOG] ⚠ ${stillTruncated.length} búsqueda(s) siguieron truncadas tras agotar los niveles:`
+    )
+    for (const label of stillTruncated) console.log(`[CATALOG]   - ${label}`)
+  } else {
+    console.log('[CATALOG] Sin búsquedas truncadas pendientes — cobertura completa')
+  }
 }
 
 main()
