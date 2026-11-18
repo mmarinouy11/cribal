@@ -39,6 +39,13 @@ const UPDATES_URL = 'send-receive-updates'
 const RESULT_CAP = 1000 // ARCE caps each search at 1000 results
 const TRUNCATION_MARKER = 'supera el tope máximo de registros permitidos'
 
+// Longer poll (10 × 2s = 20s) when a dependent select MUST repopulate before we
+// can select the required level — ICEfaces can be slow under load.
+const SELECT_ATTEMPTS = 10
+const GOTO_TIMEOUT = 60000 // page.goto can be slow; give it a minute
+// Pauses before each retry of a failed search (fresh page each time).
+const RETRY_DELAYS = [5000, 15000, 15000]
+
 // Decode the HTML entities ARCE sometimes leaves in article names
 // (e.g. "DISE&Ntilde;O" → "DISEÑO"). Covers the common Spanish named entities
 // plus decimal/hex numeric references.
@@ -133,8 +140,11 @@ function extractArticles(
     .filter((a) => Number.isFinite(a.code) && a.code > 0 && a.name.length > 0)
 }
 
-/** Click the search button via iceSubmit and return the AJAX body (empty on failure). */
-async function triggerSearch(page: Page): Promise<string> {
+/**
+ * Click the search button via iceSubmit and return the AJAX body, or null when
+ * ARCE sent no send-receive-updates response (a failure, not an empty result).
+ */
+async function triggerSearch(page: Page): Promise<string | null> {
   const responsePromise = page.waitForResponse((r) => r.url().includes(UPDATES_URL), {
     timeout: 15000,
   })
@@ -153,18 +163,23 @@ async function triggerSearch(page: Page): Promise<string> {
     return await response.text()
   } catch {
     console.log('[CATALOG] Sin respuesta send-receive-updates para la búsqueda')
-    return ''
+    return null
   }
 }
 
-/** Run the search and page through all results, accumulating every article. */
+/**
+ * Run the search and page through all results, accumulating every article.
+ * `gotResponse` is false only when the search itself got no AJAX response — that
+ * is a failure the caller must retry, distinct from a genuine empty result.
+ */
 async function searchAndExtract(
   page: Page,
   familyText: string,
   subfamilyText: string
-): Promise<{ articles: Article[]; truncated: boolean }> {
-  let updateBody = await triggerSearch(page)
-  if (!updateBody) return { articles: [], truncated: false }
+): Promise<{ articles: Article[]; truncated: boolean; gotResponse: boolean }> {
+  const firstBody = await triggerSearch(page)
+  if (firstBody === null) return { articles: [], truncated: false, gotResponse: false }
+  let updateBody = firstBody
   await page.waitForTimeout(1000)
 
   const allArticles: Article[] = []
@@ -212,7 +227,7 @@ async function searchAndExtract(
   }
 
   const truncated = sawCapMessage || isTruncated(updateBody, allArticles.length)
-  return { articles: allArticles, truncated }
+  return { articles: allArticles, truncated, gotResponse: true }
 }
 
 // A catalog search at some depth. Deeper levels are null until we refine into
@@ -239,10 +254,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// A search that could not complete (no response, timeout, missing option, …).
+// Kept out of `completed` so it is retried, and carries the spec for re-enqueue.
+interface FailedEntry {
+  key: string
+  label: string
+  reason: string
+  spec: Spec
+}
+
 interface Progress {
   completed: Set<string> // spec keys fully handled (searched; children enqueued if truncated)
   refined: Set<string> // subfamily/clase keys already expanded into children
   pending: Spec[] // remaining work queue (incl. generated child specs) for mid-DFS resume
+  failed: FailedEntry[] // searches that failed after retries, to retry next run
   totalSaved: number
 }
 
@@ -254,16 +279,18 @@ function loadProgress(): Progress {
       completed?: string[]
       refined?: string[]
       pending?: Spec[]
+      failed?: FailedEntry[]
       totalSaved?: number
     }
     return {
       completed: new Set(parsed.completed ?? []),
       refined: new Set(parsed.refined ?? []),
       pending: parsed.pending ?? [],
+      failed: parsed.failed ?? [],
       totalSaved: parsed.totalSaved ?? 0,
     }
   } catch {
-    return { completed: new Set(), refined: new Set(), pending: [], totalSaved: 0 }
+    return { completed: new Set(), refined: new Set(), pending: [], failed: [], totalSaved: 0 }
   }
 }
 
@@ -279,6 +306,7 @@ function saveProgress(progress: Progress, queue: Spec[], lastSpecLabel: string):
           completed: [...progress.completed],
           refined: [...progress.refined],
           pending: queue,
+          failed: progress.failed,
         },
         null,
         2
@@ -324,10 +352,11 @@ async function saveArticles(articles: Article[]): Promise<number> {
 async function readLevelOptions(
   page: Page,
   selector: string,
-  label: string
+  label: string,
+  maxAttempts = 5
 ): Promise<SelectOption[]> {
   let options: SelectOption[] = []
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await page.waitForTimeout(2000)
     const totalOptions = await page.evaluate((sel: string) => {
       const el = document.querySelector(sel) as HTMLSelectElement | null
@@ -399,6 +428,8 @@ async function enumerateSpecs(page: Page): Promise<Spec[]> {
 }
 
 interface SpecResult {
+  status: 'ok' | 'failed'
+  reason?: string // set only when status === 'failed'
   articles: Article[]
   truncated: boolean
   // The next-finer level to refine into when truncated, and its option texts.
@@ -411,49 +442,64 @@ interface SpecResult {
  * levels the spec fixes, read the next-finer level's options (for refinement if
  * truncated), then search and paginate. Fresh page per spec because ICEfaces'
  * session expires under extended use.
+ *
+ * Returns status 'failed' (never counted as completed) when the page did not
+ * load, a required level/option was missing on the fresh page, or the search
+ * itself got no response — all distinct from a genuine empty result.
  */
 async function runSpec(
   browser: import('playwright').Browser,
   spec: Spec
 ): Promise<SpecResult> {
-  const empty: SpecResult = { articles: [], truncated: false, childField: null, childOptions: [] }
+  const fail = (reason: string): SpecResult => ({
+    status: 'failed',
+    reason,
+    articles: [],
+    truncated: false,
+    childField: null,
+    childOptions: [],
+  })
   const page = await browser.newPage()
   page.setDefaultTimeout(30000)
   try {
-    await page.goto(CATALOG_URL)
+    try {
+      await page.goto(CATALOG_URL, { timeout: GOTO_TIMEOUT })
+    } catch {
+      return fail('timeout cargando la página')
+    }
     await page.waitForTimeout(3000)
 
     if (!(await selectOptionByText(page, FAMILIA_SELECT, spec.familyText))) {
-      console.warn(`[CATALOG] Familia no encontrada en página fresca: ${spec.familyText}`)
-      return empty
+      return fail('familia no encontrada en página fresca')
     }
     if (spec.subfamilyText) {
-      await readLevelOptions(page, SUBFAMILIA_SELECT, 'subfamilia')
+      const subs = await readLevelOptions(page, SUBFAMILIA_SELECT, 'subfamilia', SELECT_ATTEMPTS)
+      if (subs.length === 0) return fail('subfamilia se quedó sin opciones tras reintentos')
       if (!(await selectOptionByText(page, SUBFAMILIA_SELECT, spec.subfamilyText))) {
-        console.warn(`[CATALOG] Subfamilia no encontrada: ${spec.subfamilyText}`)
-        return empty
+        return fail('subfamilia no encontrada')
       }
       await page.waitForTimeout(1000)
     }
     if (spec.claseText) {
-      await readLevelOptions(page, CLASE_SELECT, 'clase')
+      const clases = await readLevelOptions(page, CLASE_SELECT, 'clase', SELECT_ATTEMPTS)
+      if (clases.length === 0) return fail('clase se quedó sin opciones tras reintentos')
       if (!(await selectOptionByText(page, CLASE_SELECT, spec.claseText))) {
-        console.warn(`[CATALOG] Clase no encontrada: ${spec.claseText}`)
-        return empty
+        return fail('clase no encontrada')
       }
       await page.waitForTimeout(1000)
     }
     if (spec.subClaseText) {
-      await readLevelOptions(page, SUBCLASE_SELECT, 'subclase')
+      const subclases = await readLevelOptions(page, SUBCLASE_SELECT, 'subclase', SELECT_ATTEMPTS)
+      if (subclases.length === 0) return fail('subclase se quedó sin opciones tras reintentos')
       if (!(await selectOptionByText(page, SUBCLASE_SELECT, spec.subClaseText))) {
-        console.warn(`[CATALOG] Subclase no encontrada: ${spec.subClaseText}`)
-        return empty
+        return fail('subclase no encontrada')
       }
       await page.waitForTimeout(1000)
     }
 
     // Decide which finer level exists for refinement, and read its options now
-    // (before the search, since the result submit can disturb the filters).
+    // (before the search, since the result submit can disturb the filters). An
+    // empty result here is fine — it just means there is no deeper level.
     let childField: SpecResult['childField'] = null
     let childSelector = ''
     let childLabel = ''
@@ -470,16 +516,17 @@ async function runSpec(
       ? (await readLevelOptions(page, childSelector, childLabel)).map((o) => o.text)
       : []
 
-    const { articles, truncated } = await searchAndExtract(
+    const { articles, truncated, gotResponse } = await searchAndExtract(
       page,
       spec.familyText,
       spec.subfamilyText ?? ''
     )
-    return { articles, truncated, childField, childOptions }
+    if (!gotResponse) return fail('sin respuesta a la búsqueda')
+
+    return { status: 'ok', articles, truncated, childField, childOptions }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error(`[CATALOG] Error en ${specLabel(spec)}: ${message}`)
-    return empty
+    return fail(`error: ${message}`)
   } finally {
     await page.close()
   }
@@ -507,10 +554,12 @@ async function fixExistingNames(): Promise<void> {
 }
 
 /**
- * Bridge pre-refinement progress files: old entries used 2-part keys
- * (familia||subfamilia); migrate them to the 4-part spec form, and re-open any
- * subfamily whose DB count is at the cap (truncated but saved as complete before
- * class-level refinement existed) so it gets refined this run.
+ * Clean the progress file at startup:
+ * - Migrate pre-refinement 2-part keys (familia||subfamilia) to the 4-part spec
+ *   form.
+ * - Re-open any subfamily entry that the DB shows is incomplete so it reruns:
+ *   0 articles (a past failure wrongly marked complete) or still at the 1000 cap
+ *   (truncated). Refined subfamilies are left alone — their classes cover them.
  */
 async function migrateAndPrune(progress: Progress): Promise<void> {
   const migrated = new Set<string>()
@@ -527,7 +576,10 @@ async function migrateAndPrune(progress: Progress): Promise<void> {
     const count = await prisma.catalogArticle.count({
       where: { familyText: family, subfamilyText: subfamily },
     })
-    if (count >= RESULT_CAP) {
+    if (count === 0) {
+      progress.completed.delete(key)
+      console.log(`[CATALOG] Re-scrape por 0 artículos: ${family} / ${subfamily}`)
+    } else if (count >= RESULT_CAP) {
       progress.completed.delete(key)
       console.log(`[CATALOG] Re-scrape por tope (${count}≥${RESULT_CAP}): ${family} / ${subfamily}`)
     }
@@ -541,6 +593,11 @@ async function main(): Promise<void> {
       `[CATALOG] Reanudando — ${progress.completed.size} búsquedas completadas, ${progress.refined.size} refinadas`
     )
   }
+
+  // Previous run's failures are retried this run; reset the list so it reflects
+  // only what fails now.
+  const previousFailures = progress.failed
+  progress.failed = []
 
   await fixExistingNames()
   await migrateAndPrune(progress)
@@ -568,6 +625,20 @@ async function main(): Promise<void> {
       console.log(`[CATALOG] ${queue.length} búsquedas iniciales (familia/subfamilia)`)
     }
 
+    // Re-enqueue specs that failed on an earlier run (deduped against the queue
+    // and anything already completed).
+    const queueKeys = new Set(queue.map(specKey))
+    let reEnqueued = 0
+    for (const f of previousFailures) {
+      if (queueKeys.has(f.key) || progress.completed.has(f.key)) continue
+      queue.push(f.spec)
+      queueKeys.add(f.key)
+      reEnqueued += 1
+    }
+    if (reEnqueued > 0) {
+      console.log(`[CATALOG] ${reEnqueued} búsqueda(s) fallida(s) previa(s) reencoladas para reintentar`)
+    }
+
     while (queue.length > 0) {
       const spec = queue.shift() as Spec
       const key = specKey(spec)
@@ -577,7 +648,25 @@ async function main(): Promise<void> {
       }
 
       console.log(`[CATALOG] Procesando: ${specLabel(spec)}`)
-      const result = await runSpec(browser, spec)
+      let result = await runSpec(browser, spec)
+      for (let i = 0; result.status === 'failed' && i < RETRY_DELAYS.length; i++) {
+        console.log(
+          `[CATALOG] Reintento ${i + 1}/${RETRY_DELAYS.length} de ${specLabel(spec)} — ${result.reason}`
+        )
+        await sleep(RETRY_DELAYS[i])
+        result = await runSpec(browser, spec)
+      }
+
+      if (result.status === 'failed') {
+        // Never mark a failure as completed — record it for the summary and for
+        // retry on the next run.
+        progress.failed.push({ key, label: specLabel(spec), reason: result.reason ?? 'desconocido', spec })
+        console.log(`[CATALOG] ✗ Falló tras reintentos: ${specLabel(spec)} — ${result.reason}`)
+        saveProgress(progress, queue, specLabel(spec))
+        await sleep(1000)
+        continue
+      }
+
       const savedNow = await saveArticles(result.articles)
       progress.totalSaved += savedNow
 
@@ -617,6 +706,16 @@ async function main(): Promise<void> {
   }
 
   console.log(`[CATALOG] Completado — ${progress.totalSaved} artículos guardados en total`)
+
+  if (progress.failed.length > 0) {
+    console.log(
+      `[CATALOG] ✗ ${progress.failed.length} búsqueda(s) fallaron (se reintentarán en la próxima corrida):`
+    )
+    for (const f of progress.failed) console.log(`[CATALOG]   - ${f.label} — ${f.reason}`)
+  } else {
+    console.log('[CATALOG] Sin búsquedas fallidas')
+  }
+
   if (stillTruncated.length > 0) {
     console.log(
       `[CATALOG] ⚠ ${stillTruncated.length} búsqueda(s) siguieron truncadas tras agotar los niveles:`
