@@ -2,6 +2,8 @@ import 'dotenv/config'
 import { prisma } from '../db/prisma'
 import { fetchArceHtml, delay } from '../scraper/fetch-arce'
 import { isAdjudication, parseTenderDetail, parseAdjudicationDetail } from '../scraper/arce-parser'
+import { fetchRssFeeds } from '../pipeline/fetcher'
+import { familyFeedUrl } from '../arce/catalog'
 
 /**
  * Audit how much of the ARCE article catalog (catalog_articles) actually covers
@@ -22,6 +24,11 @@ const ARCE_DETAIL_BASE = 'https://www.comprasestatales.gub.uy/consultas/detalle/
 const CASE_B_SAMPLE = 100
 const MISSING_PRINT_CAP = 100
 const IN_CHUNK = 1000
+
+// Wide mode: the active ARCE families and how many recent calls to sample each.
+const WIDE_FAMILIES = [2, 3, 4, 5, 6, 10, 12]
+const WIDE_SAMPLE_PER_FAMILY = 30
+const DETAIL_FETCH_ATTEMPTS = 2 // minimal retries on a failed detail fetch
 
 interface OppCodes {
   title: string
@@ -54,6 +61,40 @@ function toCodeNumbers(raw: (string | null)[]): number[] {
     if (Number.isInteger(code) && code > 0) codes.push(code)
   }
   return codes
+}
+
+// A catalog article code found on a detail page, with the item name if present.
+interface DetailCode {
+  code: number
+  name: string
+}
+
+/** Extract article codes (with item names) from a tender/adjudication detail page. */
+function codesWithNamesFromHtml(html: string): DetailCode[] {
+  const items = isAdjudication(html)
+    ? parseAdjudicationDetail(html).adjudicatedItems
+    : parseTenderDetail(html).items
+  const out: DetailCode[] = []
+  for (const item of items) {
+    const code = item.articleCode ? Number.parseInt(item.articleCode, 10) : Number.NaN
+    if (Number.isInteger(code) && code > 0) out.push({ code, name: item.name })
+  }
+  return out
+}
+
+/** Fetch a detail page by tender id, with minimal retries. Null when unavailable. */
+async function fetchDetailHtml(tenderId: string): Promise<string | null> {
+  for (let attempt = 1; attempt <= DETAIL_FETCH_ATTEMPTS; attempt++) {
+    const html = await fetchArceHtml(`${ARCE_DETAIL_BASE}/${tenderId}`)
+    if (html) return html
+    if (attempt < DETAIL_FETCH_ATTEMPTS) await delay(1000)
+  }
+  return null
+}
+
+/** The ARCE tender id embedded in an RSS item link (".../id/<id>"). */
+function tenderIdFromLink(link: string): string {
+  return link.match(/\/id\/(\d+)/)?.[1] ?? ''
 }
 
 /** Which of the given codes exist in catalog_articles (chunked `in` queries). */
@@ -103,7 +144,136 @@ async function gatherFromDetailPages(): Promise<OppCodes[]> {
   return result
 }
 
+// Per-family tally for wide mode.
+interface FamilyStat {
+  familia: number
+  read: number // calls whose detail page was read
+  withoutCodes: number // of those, how many had no catalog code
+  distinctCodes: Set<number>
+}
+
+// Where a missing code first appeared.
+interface CodeMeta {
+  title: string
+  familia: number
+  itemName: string
+}
+
+/**
+ * Wide mode (`--wide`): sample the most recent calls of every active family's
+ * RSS feed, read each detail page in memory, and measure catalog coverage of the
+ * article codes they use. Read-only; nothing is persisted.
+ */
+async function runWide(): Promise<void> {
+  console.log('[CRIBAL][AUDIT] ===== Cobertura ampliada (--wide) =====')
+
+  const stats: FamilyStat[] = []
+  const allCodes = new Set<number>()
+  const firstMetaByCode = new Map<number, CodeMeta>()
+  let totalRead = 0
+  let totalWithoutCodes = 0
+
+  for (const familia of WIDE_FAMILIES) {
+    const stat: FamilyStat = { familia, read: 0, withoutCodes: 0, distinctCodes: new Set() }
+    stats.push(stat)
+
+    const { items } = await fetchRssFeeds([familyFeedUrl(familia)])
+    const recent = items.slice(0, WIDE_SAMPLE_PER_FAMILY)
+    console.log(
+      `[CRIBAL][AUDIT] Familia ${familia}: ${recent.length} licitaciones recientes a leer…`
+    )
+
+    for (const item of recent) {
+      const tenderId = tenderIdFromLink(item.link)
+      if (!tenderId) continue
+
+      const html = await fetchDetailHtml(tenderId)
+      await delay(1000)
+      if (!html) continue
+
+      stat.read += 1
+      totalRead += 1
+
+      const detailCodes = codesWithNamesFromHtml(html)
+      if (detailCodes.length === 0) {
+        stat.withoutCodes += 1
+        totalWithoutCodes += 1
+        continue
+      }
+
+      for (const { code, name } of detailCodes) {
+        stat.distinctCodes.add(code)
+        allCodes.add(code)
+        if (!firstMetaByCode.has(code)) {
+          firstMetaByCode.set(code, { title: item.title, familia, itemName: name })
+        }
+      }
+    }
+  }
+
+  if (allCodes.size === 0 && totalRead === 0) {
+    console.log('[CRIBAL][AUDIT] No se pudo leer ninguna licitación.')
+    return
+  }
+
+  const existing = await existingCatalogCodes([...allCodes])
+
+  // Per-family coverage.
+  console.log('[CRIBAL][AUDIT] ----- Por familia -----')
+  for (const stat of stats) {
+    const present = [...stat.distinctCodes].filter((c) => existing.has(c)).length
+    const pct = stat.distinctCodes.size > 0 ? (present / stat.distinctCodes.size) * 100 : 0
+    console.log(
+      `[CRIBAL][AUDIT]   Familia ${stat.familia}: leídas ${stat.read}, códigos distintos ${stat.distinctCodes.size}, en catálogo ${present} (${pct.toFixed(1)}%)`
+    )
+  }
+
+  // Total coverage.
+  const coveragePct = allCodes.size > 0 ? (existing.size / allCodes.size) * 100 : 0
+  console.log('[CRIBAL][AUDIT] ----- Total -----')
+  console.log(
+    `[CRIBAL][AUDIT] Códigos distintos: ${allCodes.size} | en catálogo: ${existing.size} (${coveragePct.toFixed(1)}%)`
+  )
+
+  // Missing codes with title, family and item name.
+  const missing = [...allCodes].filter((c) => !existing.has(c)).sort((a, b) => a - b)
+  console.log(`[CRIBAL][AUDIT] Faltantes: ${missing.length}`)
+  if (missing.length > 0) {
+    console.log('[CRIBAL][AUDIT] ----- Códigos faltantes -----')
+    for (const code of missing.slice(0, MISSING_PRINT_CAP)) {
+      const meta = firstMetaByCode.get(code)
+      const itemName = meta?.itemName ? ` | ítem: "${meta.itemName}"` : ''
+      console.log(
+        `[CRIBAL][AUDIT]   ${code} — familia ${meta?.familia ?? '?'} — "${meta?.title ?? '(sin título)'}"${itemName}`
+      )
+    }
+    if (missing.length > MISSING_PRINT_CAP) {
+      console.log(`[CRIBAL][AUDIT]   … y ${missing.length - MISSING_PRINT_CAP} más`)
+    }
+
+    // Distribution of missing codes by 10,000-code band.
+    console.log('[CRIBAL][AUDIT] ----- Distribución de faltantes por tramo de 10.000 -----')
+    const buckets = new Map<number, number>()
+    for (const code of missing) {
+      const bucket = Math.floor(code / 10000) * 10000
+      buckets.set(bucket, (buckets.get(bucket) ?? 0) + 1)
+    }
+    for (const [bucket, count] of [...buckets.entries()].sort((a, b) => a[0] - b[0])) {
+      console.log(`[CRIBAL][AUDIT]   ${bucket}–${bucket + 9999}: ${count}`)
+    }
+  }
+
+  // Calls that use no catalog code at all (free text / no items).
+  console.log('[CRIBAL][AUDIT] ----- Sin código de catálogo -----')
+  console.log(`[CRIBAL][AUDIT] Licitaciones sin código de catálogo: ${totalWithoutCodes} de ${totalRead}`)
+}
+
 async function main(): Promise<void> {
+  if (process.argv.includes('--wide')) {
+    await runWide()
+    return
+  }
+
   // Case A when any opportunity already has stored codes; otherwise Case B.
   let oppCodes = await gatherFromStored()
   const caseUsed: 'A' | 'B' = oppCodes.length > 0 ? 'A' : 'B'
