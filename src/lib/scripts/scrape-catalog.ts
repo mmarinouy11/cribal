@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import fs from 'node:fs'
 import path from 'node:path'
+import he from 'he'
 import type { Page } from 'playwright'
 import { prisma } from '../db/prisma'
 
@@ -45,31 +46,6 @@ const SELECT_ATTEMPTS = 10
 const GOTO_TIMEOUT = 60000 // page.goto can be slow; give it a minute
 // Pauses before each retry of a failed search (fresh page each time).
 const RETRY_DELAYS = [5000, 15000, 15000]
-
-// Decode the HTML entities ARCE sometimes leaves in article names
-// (e.g. "DISE&Ntilde;O" → "DISEÑO"). Covers the common Spanish named entities
-// plus decimal/hex numeric references.
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ',
-  ntilde: 'ñ', Ntilde: 'Ñ',
-  aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú',
-  Aacute: 'Á', Eacute: 'É', Iacute: 'Í', Oacute: 'Ó', Uacute: 'Ú',
-  uuml: 'ü', Uuml: 'Ü', ordm: 'º', ordf: 'ª', deg: '°',
-  iexcl: '¡', iquest: '¿', middot: '·', mdash: '—', ndash: '–',
-}
-
-function decodeEntities(text: string): string {
-  return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, body: string) => {
-    if (body[0] === '#') {
-      const code =
-        body[1] === 'x' || body[1] === 'X'
-          ? Number.parseInt(body.slice(2), 16)
-          : Number.parseInt(body.slice(1), 10)
-      return Number.isFinite(code) ? String.fromCodePoint(code) : match
-    }
-    return NAMED_ENTITIES[body] ?? match
-  })
-}
 
 /** True when a search response hit ARCE's 1000-result cap. */
 function isTruncated(body: string, collected: number): boolean {
@@ -133,7 +109,7 @@ function extractArticles(
   return codes
     .map((c, i) => ({
       code: Number.parseInt(c[1], 10),
-      name: decodeEntities(names[i]?.[1]?.trim() ?? '').trim(),
+      name: he.decode(names[i]?.[1]?.trim() ?? '').trim(),
       familyText,
       subfamilyText,
     }))
@@ -543,8 +519,8 @@ async function fixExistingNames(): Promise<void> {
   })
   let fixed = 0
   for (const row of rows) {
-    if (!/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/.test(row.name)) continue
-    const decoded = decodeEntities(row.name).trim()
+    if (!/&[a-zA-Z0-9#]+;/.test(row.name)) continue
+    const decoded = he.decode(row.name).trim()
     if (decoded && decoded !== row.name) {
       await prisma.catalogArticle.update({ where: { id: row.id }, data: { name: decoded } })
       fixed += 1

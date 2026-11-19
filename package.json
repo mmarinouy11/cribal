@@ -20,6 +20,7 @@
     "fix:feeds": "ts-node src/lib/scripts/fix-feeds.ts",
     "reenrich": "ts-node src/lib/scripts/reenrich.ts",
     "scrape:catalog": "ts-node src/lib/scripts/scrape-catalog.ts",
+    "fix:catalog:names": "ts-node src/lib/scripts/fix-catalog-names.ts",
     "scheduler": "ts-node src/app/api/scheduler.ts",
     "postinstall": "prisma generate && PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers npx playwright install chromium --with-deps"
   },
@@ -33,6 +34,7 @@
     "docx": "^9.7.1",
     "dotenv": "^17.4.2",
     "file-saver": "^2.0.5",
+    "he": "^1.2.0",
     "next": "14.2.35",
     "next-auth": "^5.0.0-beta.32",
     "node-cron": "^4.6.0",
@@ -47,6 +49,7 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/file-saver": "^2.0.7",
+    "@types/he": "^1.2.3",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",
     "@types/react": "^18",
