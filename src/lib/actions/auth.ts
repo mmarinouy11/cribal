@@ -31,6 +31,8 @@ export interface RegisterCompanyInput {
   excludedKeywords: string[]
   excludedProducts: string[]
   rssFeeds: string[]
+  // Catalog articles chosen in onboarding (persisted; not yet used by the pipeline)
+  catalogArticleIds?: number[]
   // Step 4 — validation sample the user reviewed (optional)
   validationItems?: ClassifiedValidationItem[]
 }
@@ -71,6 +73,10 @@ export async function registerCompany(
   // Configuration comes from the form (AI-generated or manually adjusted).
   const cleanList = (list: string[]): string[] => list.map((s) => s.trim()).filter(Boolean)
   const rssFeeds = cleanList(data.rssFeeds)
+  // Dedupe + keep only valid positive integer article ids.
+  const catalogArticleIds = Array.from(
+    new Set((data.catalogArticleIds ?? []).filter((id) => Number.isInteger(id) && id > 0))
+  )
 
   // 3-5. Create company, profile and user atomically. Any throw rolls back all
   // three, so a company is never committed without its owning user.
@@ -95,6 +101,7 @@ export async function registerCompany(
           lookbackDays: 1,
           rssFeeds: rssFeeds.length > 0 ? rssFeeds : [FALLBACK_RSS_FEED],
           notificationEmails: [notificationEmail],
+          catalogArticleIds,
           isActive: true,
           registrationStatus: 'PENDING',
           registeredAt: new Date(),

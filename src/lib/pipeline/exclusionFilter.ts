@@ -1,4 +1,5 @@
 import type { NormalizedTender } from './normalizer'
+import { normalizeText } from '@/lib/text/normalize'
 
 // Base exclusion keywords: reject if ANY of these appear in title + description.
 export const BASE_EXCLUSION_KEYWORDS: string[] = [
@@ -69,18 +70,19 @@ export function filterExclusions(
   excludedProducts: string[],
   relevantKeywords: string[] = []
 ): ExclusionFilterResult {
-  const relevant = relevantKeywords.map((k) => k.toLowerCase()).filter(Boolean)
-  const baseExclusions = BASE_EXCLUSION_KEYWORDS.map((k) => k.toLowerCase()).filter(
+  // Normalize everything (diacritic-insensitive) so matching ignores accents.
+  const relevant = relevantKeywords.map(normalizeText).filter(Boolean)
+  const baseExclusions = BASE_EXCLUSION_KEYWORDS.map(normalizeText).filter(
     // Do not exclude a term the company explicitly marked relevant.
     (exclusion) => !relevant.some((keyword) => keyword.includes(exclusion))
   )
-  const products = excludedProducts.map((p) => p.toLowerCase())
+  const products = excludedProducts.map(normalizeText).filter(Boolean)
 
   const passed: NormalizedTender[] = []
   const rejected: { tender: NormalizedTender; reason: string }[] = []
 
   for (const tender of tenders) {
-    const haystack = `${tender.title} ${tender.description}`.toLowerCase()
+    const haystack = normalizeText(`${tender.title} ${tender.description}`)
 
     // 1. Base exclusion keywords.
     const matchedExclusion = baseExclusions.find((keyword) => haystack.includes(keyword))
@@ -95,8 +97,8 @@ export function filterExclusions(
     // 2. Excluded product special logic.
     const matchedProduct = products.find((product) => haystack.includes(product))
     if (matchedProduct) {
-      const hasBroaderScope = BROADER_SCOPE_SIGNALS.some((s) => haystack.includes(s))
-      const hasLicenseOnly = LICENSE_ONLY_SIGNALS.some((s) => haystack.includes(s))
+      const hasBroaderScope = BROADER_SCOPE_SIGNALS.some((s) => haystack.includes(normalizeText(s)))
+      const hasLicenseOnly = LICENSE_ONLY_SIGNALS.some((s) => haystack.includes(normalizeText(s)))
 
       // Reject only when the scope is license-only and there is no broader scope.
       if (hasLicenseOnly && !hasBroaderScope) {

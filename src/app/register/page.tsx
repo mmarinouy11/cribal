@@ -66,6 +66,7 @@ export default function RegisterPage() {
   // Step 4 (validation)
   const [appliedExclusions, setAppliedExclusions] = useState<string[]>([])
   const [validationItems, setValidationItems] = useState<ClassifiedValidationItem[]>([])
+  const [catalogArticleIds, setCatalogArticleIds] = useState<number[]>([])
 
   const EMPTY_CONFIG: GeneratedCompanyConfig = {
     relevantKeywords: [],
@@ -204,6 +205,7 @@ export default function RegisterPage() {
       excludedKeywords: finalExcludedKeywords,
       excludedProducts: config?.excludedProducts ?? [],
       rssFeeds: config?.rssFeeds ?? [],
+      catalogArticleIds,
       validationItems,
     })
 
@@ -544,6 +546,15 @@ export default function RegisterPage() {
             onFeedsChange={(feeds) => {
               setConfig((prev) => (prev ? { ...prev, rssFeeds: feeds } : { ...EMPTY_CONFIG, rssFeeds: feeds }))
             }}
+            onKeywordsChange={(keywords) => {
+              setConfig((prev) =>
+                prev
+                  ? { ...prev, relevantKeywords: keywords }
+                  : { ...EMPTY_CONFIG, relevantKeywords: keywords }
+              )
+            }}
+            catalogArticleIds={catalogArticleIds}
+            onCatalogArticleIdsChange={setCatalogArticleIds}
             appliedExclusions={appliedExclusions}
             onAppliedExclusionsChange={setAppliedExclusions}
             onValidatedItemsChange={setValidationItems}

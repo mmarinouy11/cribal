@@ -4,6 +4,7 @@ import path from 'node:path'
 import he from 'he'
 import type { Page } from 'playwright'
 import { prisma } from '../db/prisma'
+import { normalizeText } from '../text/normalize'
 
 // Chromium is installed at build time under this persistent path (see the
 // postinstall script). Point Playwright at it before the runtime import below.
@@ -301,16 +302,19 @@ async function saveArticles(articles: Article[]): Promise<number> {
 
   let saved = 0
   for (const article of byCode.values()) {
+    const nameNorm = normalizeText(article.name)
     await prisma.catalogArticle.upsert({
       where: { id: article.code },
       create: {
         id: article.code,
         name: article.name,
+        nameNorm,
         familyText: article.familyText || null,
         subfamilyText: article.subfamilyText || null,
       },
       update: {
         name: article.name,
+        nameNorm,
         familyText: article.familyText || null,
         subfamilyText: article.subfamilyText || null,
       },

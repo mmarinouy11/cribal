@@ -11,6 +11,8 @@ import {
 } from '@/lib/register/validation'
 import { feedToLabel, feedToDetailedLabel } from '@/lib/arce/catalog'
 import { CategorySelector } from '@/components/register/category-selector'
+import { CatalogSearch, type AppliedCatalogConfig } from '@/components/register/catalog-search'
+import { TagInput } from '@/components/ui/tag-input'
 
 interface ValidationStepProps {
   companyName: string
@@ -20,6 +22,11 @@ interface ValidationStepProps {
   feeds: string[]
   generating: boolean
   onFeedsChange: (feeds: string[]) => void
+  // Edit the company's relevant keywords (catalog-derived or free-text).
+  onKeywordsChange: (keywords: string[]) => void
+  // Catalog articles the user picked in onboarding (persisted on the company).
+  catalogArticleIds: number[]
+  onCatalogArticleIdsChange: (ids: number[]) => void
   appliedExclusions: string[]
   onAppliedExclusionsChange: (keywords: string[]) => void
   // Reports the reviewed sample with the effective relevance (user mark wins),
@@ -35,6 +42,9 @@ export function ValidationStep({
   feeds,
   generating,
   onFeedsChange,
+  onKeywordsChange,
+  catalogArticleIds,
+  onCatalogArticleIdsChange,
   appliedExclusions,
   onAppliedExclusionsChange,
   onValidatedItemsChange,
@@ -44,6 +54,7 @@ export function ValidationStep({
   const [usedFallback, setUsedFallback] = useState(false)
   const [marks, setMarks] = useState<Record<string, Mark>>({})
   const [aiReasons, setAiReasons] = useState<Record<string, string>>({})
+  const [showCatalog, setShowCatalog] = useState(false)
   const [showSelector, setShowSelector] = useState(false)
   const [suggestedExclusions, setSuggestedExclusions] = useState<string[] | null>(null)
   const [keptCategories, setKeptCategories] = useState<Set<string>>(new Set())
@@ -139,6 +150,19 @@ export function ValidationStep({
     })
   }
 
+  // Apply a catalog selection: merge feeds, keywords and article ids. Both the
+  // feeds and keywords change in one render, so the sample reloads only once.
+  function handleCatalogApply(result: AppliedCatalogConfig) {
+    const mergedFeeds = Array.from(new Set([...feeds, ...result.feeds]))
+    if (mergedFeeds.length !== feeds.length) onFeedsChange(mergedFeeds)
+
+    const mergedKeywords = Array.from(new Set([...relevantKeywords, ...result.keywords]))
+    if (mergedKeywords.length !== relevantKeywords.length) onKeywordsChange(mergedKeywords)
+
+    const mergedIds = Array.from(new Set([...catalogArticleIds, ...result.articleIds]))
+    if (mergedIds.length !== catalogArticleIds.length) onCatalogArticleIdsChange(mergedIds)
+  }
+
   function setMark(id: string, mark: Exclude<Mark, null>) {
     setMarks((prev) => ({ ...prev, [id]: prev[id] === mark ? null : mark }))
   }
@@ -197,16 +221,47 @@ export function ValidationStep({
           ))}
           <button
             type="button"
-            onClick={() => setShowSelector((v) => !v)}
+            onClick={() => setShowCatalog((v) => !v)}
             className="inline-flex items-center gap-1 rounded-full border border-dashed border-[#06b6d4] px-3 py-1 text-sm text-[#0e7490] hover:bg-[#f0f9ff]"
           >
             <i className="ti ti-plus" aria-hidden /> Agregar categoría
           </button>
         </div>
 
+        {showCatalog && (
+          <CatalogSearch
+            initialTerms={relevantKeywords}
+            existingKeywords={relevantKeywords}
+            existingFeeds={feeds}
+            onApply={handleCatalogApply}
+          />
+        )}
+
+        <button
+          type="button"
+          onClick={() => setShowSelector((v) => !v)}
+          className="text-xs font-medium text-[#0e7490] hover:underline"
+        >
+          {showSelector ? 'Ocultar explorador por familia' : 'Explorar por familia'}
+        </button>
+
         {showSelector && (
           <CategorySelector activeFeeds={feeds} onAdd={addFeed} onRemove={removeFeed} />
         )}
+      </section>
+
+      {/* Section B — relevant keywords (catalog-derived + free text) */}
+      <section className="space-y-2">
+        <h3 className="text-sm font-semibold text-[#0c1e3c]">Palabras clave</h3>
+        <p className="text-xs text-[#6b7280]">
+          Agregá palabras propias de tu servicio o producto. Complementan lo que inferimos de tu
+          descripción y del catálogo.
+        </p>
+        <TagInput
+          values={relevantKeywords}
+          onChange={onKeywordsChange}
+          placeholder="Agregar palabra clave y Enter"
+        />
       </section>
 
       {/* Section C — historical sample */}

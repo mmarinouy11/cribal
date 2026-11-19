@@ -12,7 +12,9 @@ export default auth((req) => {
   const isAuthRoute =
     pathname.startsWith('/login') ||
     pathname.startsWith('/register') ||
-    pathname.startsWith('/api/auth')
+    pathname.startsWith('/api/auth') ||
+    // Public catalog search: used during registration, before a session exists.
+    pathname.startsWith('/api/catalog')
 
   // Let Bearer-token requests to /api/runs through so the route handler can
   // validate the CRON_SECRET itself (the middleware can't, and has no session

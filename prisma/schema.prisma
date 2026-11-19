@@ -13,11 +13,13 @@ datasource db {
 model CatalogArticle {
   id            Int      @id // ARCE article code
   name          String
+  nameNorm      String   @default("") // normalized name for search (see normalizeText)
   familyText    String?
   subfamilyText String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([nameNorm])
   @@map("catalog_articles")
 }
 
@@ -36,6 +38,7 @@ model CompanyConfig {
   customAiPrompt        String?
   notificationEmails    String[]
   emailOnlyWhenRelevant Boolean            @default(false)
+  catalogArticleIds     Int[]              @default([]) // catalog articles chosen in onboarding (not yet used by the pipeline)
   isActive              Boolean            @default(true)
   registrationStatus    RegistrationStatus @default(PENDING)
   registeredAt          DateTime?
