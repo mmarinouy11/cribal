@@ -9,6 +9,7 @@
 import Parser from 'rss-parser'
 import Anthropic from '@anthropic-ai/sdk'
 import { normalizeFeedToFamily } from '@/lib/arce/catalog'
+import { normalizeText } from '@/lib/text/normalize'
 import type {
   ValidationItem,
   ClassifiedValidationItem,
@@ -106,8 +107,9 @@ async function fetchSampleItems(familyFeeds: string[]): Promise<SampleItem[]> {
         feedSource: familyFeeds[i],
         isOpen: isOpenTender(bestContent),
         contentSnippet,
-        // Full, untruncated text for keyword matching: title + both content fields.
-        searchText: `${title} ${contentSnippet} ${content}`.toLowerCase(),
+        // Full, untruncated text for keyword matching (diacritic-insensitive):
+        // title + both content fields.
+        searchText: normalizeText(`${title} ${contentSnippet} ${content}`),
       })
     }
   }
@@ -225,8 +227,8 @@ export async function fetchAndClassifyValidationSample(
   }
 
   // 5. Apply the company's keyword filter in code (the real fine-grained filter).
-  // Match against the full text: title + contentSnippet + content.
-  const keywordsToMatch = relevantKeywords.map((k) => k.toLowerCase()).filter(Boolean)
+  // Match against the full normalized text: title + contentSnippet + content.
+  const keywordsToMatch = relevantKeywords.map(normalizeText).filter(Boolean)
   const filtered =
     keywordsToMatch.length > 0
       ? allItems.filter((item) => keywordsToMatch.some((kw) => item.searchText.includes(kw)))
