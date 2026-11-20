@@ -3,12 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchAndClassifyValidationSample } from '@/lib/actions/register'
 import {
-  inferExclusionKeywords,
   categoriesToDrop,
   type ValidationItem,
   type ClassifiedValidationItem,
   type Mark,
 } from '@/lib/register/validation'
+import {
+  suggestAdjustments,
+  type AdjustmentSuggestions,
+  type AdjustmentSuggestion,
+} from '@/lib/suggestions/suggest-adjustments'
 import { feedToLabel, feedToDetailedLabel } from '@/lib/arce/catalog'
 import { CategorySelector } from '@/components/register/category-selector'
 import { CatalogSearch, type AppliedCatalogConfig } from '@/components/register/catalog-search'
@@ -56,7 +60,9 @@ export function ValidationStep({
   const [aiReasons, setAiReasons] = useState<Record<string, string>>({})
   const [showCatalog, setShowCatalog] = useState(false)
   const [showSelector, setShowSelector] = useState(false)
-  const [suggestedExclusions, setSuggestedExclusions] = useState<string[] | null>(null)
+  const [suggestions, setSuggestions] = useState<AdjustmentSuggestions | null>(null)
+  // value → checked. Includes default checked, exclusions default unchecked.
+  const [checked, setChecked] = useState<Record<string, boolean>>({})
   const [keptCategories, setKeptCategories] = useState<Set<string>>(new Set())
 
   const feedsKey = useMemo(() => feeds.join('||'), [feeds])
@@ -105,7 +111,8 @@ export function ValidationStep({
         }
         setMarks(nextMarks)
         setAiReasons(nextReasons)
-        setSuggestedExclusions(null)
+        setSuggestions(null)
+        setChecked({})
       } catch {
         if (requestRef.current === id) {
           setSample([])
@@ -168,19 +175,46 @@ export function ValidationStep({
   }
 
   function analyzeMarks() {
-    setSuggestedExclusions(inferExclusionKeywords(relevantItems, notRelevantItems))
+    const result = suggestAdjustments(
+      relevantItems,
+      notRelevantItems,
+      relevantKeywords,
+      appliedExclusions
+    )
+    setSuggestions(result)
+    // Includes checked by default, exclusions unchecked.
+    const next: Record<string, boolean> = {}
+    for (const s of result.include) next[`inc:${s.value}`] = true
+    for (const s of result.exclude) next[`exc:${s.value}`] = false
+    setChecked(next)
   }
 
-  function removeSuggestion(keyword: string) {
-    setSuggestedExclusions((prev) => (prev ? prev.filter((k) => k !== keyword) : prev))
+  function toggleChecked(uiKey: string) {
+    setChecked((prev) => ({ ...prev, [uiKey]: !prev[uiKey] }))
   }
 
   function applySuggestions() {
-    if (!suggestedExclusions || suggestedExclusions.length === 0) return
-    const merged = Array.from(new Set([...appliedExclusions, ...suggestedExclusions]))
-    onAppliedExclusionsChange(merged)
-    setSuggestedExclusions(null)
+    if (!suggestions) return
+    const includeToAdd = suggestions.include
+      .filter((s) => checked[`inc:${s.value}`])
+      .map((s) => s.value)
+    const excludeToAdd = suggestions.exclude
+      .filter((s) => checked[`exc:${s.value}`])
+      .map((s) => s.value)
+
+    // Both keywords and exclusions change in one render → the sample reloads once.
+    if (includeToAdd.length > 0) {
+      onKeywordsChange(Array.from(new Set([...relevantKeywords, ...includeToAdd])))
+    }
+    if (excludeToAdd.length > 0) {
+      onAppliedExclusionsChange(Array.from(new Set([...appliedExclusions, ...excludeToAdd])))
+    }
+    setSuggestions(null)
+    setChecked({})
   }
+
+  const hasSuggestions =
+    suggestions !== null && (suggestions.include.length > 0 || suggestions.exclude.length > 0)
 
   const dropSuggestions = canAnalyze
     ? categoriesToDrop(sample, marks).filter((s) => !keptCategories.has(s.feedSource))
@@ -387,7 +421,7 @@ export function ValidationStep({
           {!canAnalyze ? (
             <p className="text-xs text-[#6b7280]">
               Marcá al menos una licitación como relevante y otra como no relevante para recibir
-              sugerencias de exclusión.
+              sugerencias.
             </p>
           ) : (
             <button
@@ -399,44 +433,41 @@ export function ValidationStep({
             </button>
           )}
 
-          {suggestedExclusions !== null && (
-            <div className="space-y-2">
-              {suggestedExclusions.length === 0 ? (
-                <p className="text-xs text-[#6b7280]">
-                  No encontramos términos claros para excluir a partir de tus marcaciones.
-                </p>
-              ) : (
-                <>
-                  <p className="text-sm text-[#0c1e3c]">
-                    Basado en tus marcaciones, sugerimos excluir:
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {suggestedExclusions.map((keyword) => (
-                      <span
-                        key={keyword}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-[#fecaca] bg-[#fef2f2] px-3 py-1 text-sm text-[#b91c1c]"
-                      >
-                        {keyword}
-                        <button
-                          type="button"
-                          onClick={() => removeSuggestion(keyword)}
-                          aria-label={`Quitar ${keyword}`}
-                          className="text-[#f87171] hover:text-[#b91c1c]"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={applySuggestions}
-                    className="rounded-lg bg-[#06b6d4] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0891b2]"
-                  >
-                    Aplicar sugerencias
-                  </button>
-                </>
+          {suggestions !== null && !hasSuggestions && (
+            <p className="text-xs text-[#6b7280]">No encontramos ajustes claros por ahora.</p>
+          )}
+
+          {hasSuggestions && (
+            <div className="space-y-4">
+              {suggestions.include.length > 0 && (
+                <SuggestionGroup
+                  title="Palabras clave a agregar"
+                  hint="Encontramos estos términos en lo que marcaste como relevante."
+                  accent="include"
+                  items={suggestions.include}
+                  checked={checked}
+                  prefix="inc"
+                  onToggle={toggleChecked}
+                />
               )}
+              {suggestions.exclude.length > 0 && (
+                <SuggestionGroup
+                  title="Exclusiones sugeridas"
+                  hint="Aparecen en lo que marcaste como no relevante. Revisá antes de aplicar."
+                  accent="exclude"
+                  items={suggestions.exclude}
+                  checked={checked}
+                  prefix="exc"
+                  onToggle={toggleChecked}
+                />
+              )}
+              <button
+                type="button"
+                onClick={applySuggestions}
+                className="rounded-lg bg-[#06b6d4] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0891b2]"
+              >
+                Aplicar sugerencias
+              </button>
             </div>
           )}
 
@@ -478,6 +509,63 @@ export function ValidationStep({
           ))}
         </section>
       )}
+    </div>
+  )
+}
+
+interface SuggestionGroupProps {
+  title: string
+  hint: string
+  accent: 'include' | 'exclude'
+  items: AdjustmentSuggestion[]
+  checked: Record<string, boolean>
+  prefix: string
+  onToggle: (uiKey: string) => void
+}
+
+/** A reviewable group of suggestions (include or exclude) with "por qué" titles. */
+function SuggestionGroup({
+  title,
+  hint,
+  accent,
+  items,
+  checked,
+  prefix,
+  onToggle,
+}: SuggestionGroupProps) {
+  const accentClass =
+    accent === 'include'
+      ? 'text-[#065f46] focus:ring-[#10b981]'
+      : 'text-[#b91c1c] focus:ring-[#ef4444]'
+  return (
+    <div className="space-y-2">
+      <div>
+        <h4 className="text-sm font-semibold text-[#0c1e3c]">{title}</h4>
+        <p className="text-xs text-[#6b7280]">{hint}</p>
+      </div>
+      <div className="space-y-2">
+        {items.map((item) => {
+          const uiKey = `${prefix}:${item.value}`
+          return (
+            <label key={uiKey} className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={checked[uiKey] ?? false}
+                onChange={() => onToggle(uiKey)}
+                className={`mt-0.5 h-4 w-4 rounded border-[#cbd5e1] ${accentClass}`}
+              />
+              <span className="min-w-0">
+                <span className="text-sm font-medium text-[#0c1e3c]">{item.value}</span>
+                {item.titles.length > 0 && (
+                  <span className="block text-xs text-[#94a3b8]">
+                    Ej.: {item.titles.map((t) => `“${t}”`).join(' · ')}
+                  </span>
+                )}
+              </span>
+            </label>
+          )
+        })}
+      </div>
     </div>
   )
 }
