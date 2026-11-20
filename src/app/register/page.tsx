@@ -97,12 +97,16 @@ export default function RegisterPage() {
       setDescription(result.description)
       setCapabilitiesText(result.capabilities)
       setLookupMessage(
-        result.found
+        result.status === 'ok'
           ? '✅ Información encontrada — podés editarla antes de continuar'
-          : 'No encontramos información pública. Completá los campos manualmente.'
+          : result.status === 'error'
+            ? 'No pudimos consultar la información en este momento. Completá los campos manualmente.'
+            : 'No encontramos información pública. Completá los campos manualmente.'
       )
     } catch {
-      setLookupMessage('Error al buscar. Completá los campos manualmente.')
+      setLookupMessage(
+        'No pudimos consultar la información en este momento. Completá los campos manualmente.'
+      )
     } finally {
       setLooking(false)
     }

@@ -32,6 +32,7 @@ export async function saveOnboardingOpportunities(
   const onboardingRun = await prisma.run.create({
     data: {
       companyId,
+      kind: 'onboarding',
       status: 'COMPLETED',
       startedAt: new Date(),
       finishedAt: new Date(),
@@ -55,6 +56,7 @@ export async function saveOnboardingOpportunities(
           opportunityId: `arce|${externalId}`,
           externalId,
           sourceType: 'ARCE',
+          source: 'onboarding',
           title: item.title,
           description: item.object || null,
           url: item.url,

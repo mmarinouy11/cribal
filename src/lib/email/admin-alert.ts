@@ -9,40 +9,47 @@ function getResend(): Resend {
   return cachedResend
 }
 
-/** UTC calendar day, "YYYY-MM-DD", used as the once-per-day alert key. */
+/** UTC calendar day, "YYYY-MM-DD". */
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-/**
- * Alert the administrator that ARCE is unreachable from here (every company's
- * feeds are down). Fires at most once per day: the first call of the day claims
- * the day's `AdminAlertLog` row; later calls see the unique-key clash and return.
- *
- * When `ADMIN_ALERT_EMAIL` is set, an email is sent; otherwise it only logs. The
- * daily guard is enforced either way.
- */
-export async function sendAdminFeedsDownAlert(
-  companiesAffected: number,
+interface AdminAlert {
+  kind: string // dedupe key suffix, so each alert type fires once per day
+  title: string
+  subject: string
+  companiesAffected: number
   errorSummary?: string
-): Promise<void> {
-  const alertDate = todayKey()
+}
 
-  // Claim today's slot first; a clash means the alert already went out today.
+/**
+ * Send one admin alert, at most once per day per kind. The first call of the day
+ * claims the day's `AdminAlertLog` row (alertDate = "YYYY-MM-DD:<kind>"); later
+ * calls see the unique-key clash and return. When `ADMIN_ALERT_EMAIL` is set an
+ * email is sent; otherwise it only logs. The daily guard holds either way.
+ */
+async function sendAdminAlertOncePerDay(alert: AdminAlert): Promise<void> {
+  const day = todayKey()
+  const alertDate = `${day}:${alert.kind}`
+
   try {
     await prisma.adminAlertLog.create({
-      data: { alertDate, companiesAffected, errorSummary: errorSummary ?? null },
+      data: {
+        alertDate,
+        companiesAffected: alert.companiesAffected,
+        errorSummary: alert.errorSummary ?? null,
+      },
     })
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      console.log(`[CRIBAL][ADMIN] Aviso de ARCE caído ya enviado hoy (${alertDate}) — se omite`)
+      console.log(`[CRIBAL][ADMIN] Aviso "${alert.kind}" ya enviado hoy (${day}) — se omite`)
       return
     }
     throw error
   }
 
-  const summaryLine = errorSummary ? `Error: ${errorSummary}` : 'Error: no disponible'
-  const logMessage = `[CRIBAL][ADMIN] ARCE no responde — ${companiesAffected} empresa(s) afectada(s) el ${alertDate}. ${summaryLine}`
+  const detail = alert.errorSummary ?? 'no disponible'
+  const logMessage = `[CRIBAL][ADMIN] ${alert.title} — ${alert.companiesAffected} empresa(s) el ${day}. Detalle: ${detail}`
 
   const to = process.env.ADMIN_ALERT_EMAIL
   if (!to) {
@@ -52,22 +59,42 @@ export async function sendAdminFeedsDownAlert(
 
   const from = process.env.EMAIL_FROM ?? 'onboarding@resend.dev'
   const html = `
-    <h2>ARCE no responde</h2>
-    <p>El pipeline de Cribal no pudo leer ningún feed de ARCE
-    (<code>comprasestatales.gub.uy</code>) en la última corrida.</p>
+    <h2>${alert.title}</h2>
     <ul>
-      <li><strong>Fecha:</strong> ${alertDate}</li>
-      <li><strong>Empresas afectadas:</strong> ${companiesAffected}</li>
-      <li><strong>Detalle:</strong> ${errorSummary ?? 'no disponible'}</li>
+      <li><strong>Fecha:</strong> ${day}</li>
+      <li><strong>Empresas afectadas:</strong> ${alert.companiesAffected}</li>
+      <li><strong>Detalle:</strong> ${detail}</li>
     </ul>
-    <p>Se reintentará automáticamente en la próxima corrida. Este aviso se envía
-    como máximo una vez por día.</p>`
+    <p>Este aviso se envía como máximo una vez por día.</p>`
 
-  await getResend().emails.send({
-    from,
-    to,
-    subject: `Cribal · ARCE no responde (${alertDate})`,
-    html,
-  })
+  await getResend().emails.send({ from, to, subject: alert.subject, html })
   console.log(`${logMessage} — aviso enviado a ${to}`)
+}
+
+/** Alert that ARCE is unreachable (every company's feeds are down). */
+export async function sendAdminFeedsDownAlert(
+  companiesAffected: number,
+  errorSummary?: string
+): Promise<void> {
+  await sendAdminAlertOncePerDay({
+    kind: 'feeds_down',
+    title: 'ARCE no responde',
+    subject: `Cribal · ARCE no responde (${todayKey()})`,
+    companiesAffected,
+    errorSummary,
+  })
+}
+
+/** Alert that the Anthropic API has no credit (billing error). */
+export async function sendAdminAiBillingAlert(
+  companiesAffected: number,
+  errorSummary?: string
+): Promise<void> {
+  await sendAdminAlertOncePerDay({
+    kind: 'ai_billing',
+    title: 'Servicio de IA sin crédito',
+    subject: `Cribal · Servicio de IA sin crédito (${todayKey()})`,
+    companiesAffected,
+    errorSummary,
+  })
 }

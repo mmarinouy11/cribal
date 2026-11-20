@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { OpportunityStatus, Prisma } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
+import { logAiError } from '@/lib/ai/errors'
 import { extractPliegoText } from '@/lib/pliego/extractor'
 import type { TenderItem } from '@/lib/scraper/arce-parser'
 
@@ -236,8 +237,7 @@ ${pliegoSection}`
       analysis = parse(await callModel())
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.error(`[CRIBAL][CONDICIONES] Error analizando ${id}: ${message}`)
+    logAiError(`análisis de condiciones del pliego (${id})`, error)
     return { success: false, error: 'No se pudo analizar las condiciones. Intentá nuevamente.' }
   }
 
