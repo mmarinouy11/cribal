@@ -1,5 +1,6 @@
 import cron from 'node-cron'
 import { runPipelineAllCompanies } from '@/lib/pipeline'
+import { RUN_CRON } from '@/lib/schedule'
 
 let cronStarted = false
 
@@ -15,9 +16,9 @@ export function startPipelineCron() {
   }
   cronStarted = true
 
-  // Monday–Friday at 11:00 UTC = 08:00 Montevideo.
+  // Monday–Friday at 11:00 UTC = 08:00 Montevideo (shared with the banner).
   cron.schedule(
-    '0 11 * * 1-5',
+    RUN_CRON,
     async () => {
       console.log('[CRIBAL][CRON] Iniciando pipeline automático...')
       try {

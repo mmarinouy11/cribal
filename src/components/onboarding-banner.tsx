@@ -2,15 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { formatNextRunLabel } from '@/lib/schedule'
 
 const STORAGE_KEY = 'cribal_onboarding_dismissed'
 
 export function OnboardingBanner() {
   // Start hidden to avoid a hydration mismatch; reveal after reading localStorage.
   const [visible, setVisible] = useState(false)
+  // Computed on the client (timezone-aware) to avoid a server/client mismatch.
+  const [nextRunLabel, setNextRunLabel] = useState('')
 
   useEffect(() => {
     if (typeof window === 'undefined') return
+    setNextRunLabel(formatNextRunLabel())
     if (window.localStorage.getItem(STORAGE_KEY) !== 'true') {
       setVisible(true)
     }
@@ -28,7 +32,7 @@ export function OnboardingBanner() {
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <i className="ti ti-confetti text-[#06b6d4]" aria-hidden />
         <span className="truncate">
-          Bienvenido a Cribal · La criba correrá hoy a las 8:00 AM
+          Bienvenido a Cribal · La criba correrá {nextRunLabel}
         </span>
       </span>
       <Link href="/perfil" className="shrink-0 font-medium text-[#06b6d4] hover:underline">
