@@ -210,9 +210,29 @@ export default async function DashboardPage() {
       ? 'Última falló'
       : formatRelativeTime(lastSuccessfulRunAt)
 
+  // Show an ARCE-down notice when the latest run failed or was partial.
+  const arceDown =
+    lastRun?.status === RunStatus.FAILED || lastRun?.status === RunStatus.PARTIAL
+  const arceDownAt = arceDown ? formatDateTime(lastRun.finishedAt ?? lastRun.startedAt) : null
+
   return (
     <div className="space-y-6">
       <OnboardingBanner />
+
+      {arceDown && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <i className="ti ti-cloud-off mt-0.5 text-lg text-amber-600" aria-hidden />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-[#92400e]">
+              ARCE no respondió en la última actualización ({arceDownAt}). Vamos a reintentar
+              automáticamente en la próxima corrida.
+            </p>
+            <p className="mt-0.5 text-xs text-[#b45309]">
+              También podés ejecutar la criba manualmente con el botón de arriba.
+            </p>
+          </div>
+        </div>
+      )}
 
       <header className="flex items-start justify-between">
         <div>
@@ -270,7 +290,11 @@ export default async function DashboardPage() {
               {nextRunLabel && (
                 <div className="text-[11px] text-[#94a3b8]">Próxima: {nextRunLabel}</div>
               )}
-              {lastSuccessfulRunAt ? (
+              {lastRun &&
+              (lastRun.status === RunStatus.FAILED ||
+                lastRun.status === RunStatus.PARTIAL) ? (
+                <RunStatusBadge status={lastRun.status} />
+              ) : lastSuccessfulRunAt ? (
                 <RunStatusBadge status={RunStatus.COMPLETED} />
               ) : lastRun ? (
                 <RunStatusBadge status={RunStatus.FAILED} />

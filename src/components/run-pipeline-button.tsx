@@ -4,10 +4,18 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ButtonVariant } from '@/components/ui/button'
 import { Toast, type ToastType } from '@/components/ui/toast'
-import { triggerRun } from '@/lib/actions/runs'
+import { triggerRun, getLatestRunStatus } from '@/lib/actions/runs'
 import { cn } from '@/lib/cn'
 
 type RunState = 'idle' | 'running' | 'done'
+
+// Poll the latest run's outcome for up to ~4 minutes after triggering.
+const POLL_INTERVAL_MS = 4_000
+const POLL_MAX_ATTEMPTS = 60
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 interface RunPipelineButtonProps {
   label?: string
@@ -26,15 +34,43 @@ export function RunPipelineButton({ label = 'Correr la criba ahora' }: RunPipeli
   async function handleRun() {
     if (state !== 'idle') return
     setState('running')
+    const clickedAt = Date.now()
     try {
       await triggerRun()
-      setState('done')
-      // Give the background run a moment, then refresh server data.
-      setTimeout(() => router.refresh(), 1500)
-      setTimeout(() => setState('idle'), 5000)
     } catch {
       setState('idle')
       setToast({ message: 'No se pudo iniciar la criba', type: 'error' })
+      return
+    }
+
+    // The run is asynchronous; poll its outcome so a failed run reports "ARCE no
+    // respondió" rather than silently looking like "0 oportunidades nuevas".
+    try {
+      for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+        await wait(POLL_INTERVAL_MS)
+        const latest = await getLatestRunStatus()
+        // A run of ours that has finished since we clicked.
+        const finishedForUs =
+          latest?.finishedAt && new Date(latest.finishedAt).getTime() >= clickedAt - 2000
+        if (!finishedForUs) continue
+
+        if (latest.status === 'FAILED') {
+          setToast({ message: 'ARCE no respondió. Probá de nuevo más tarde.', type: 'error' })
+        } else if (latest.status === 'PARTIAL') {
+          setToast({
+            message: 'Algunos feeds de ARCE no respondieron. Reintentaremos en la próxima corrida.',
+            type: 'error',
+          })
+        } else {
+          setToast({ message: 'Criba completada.', type: 'success' })
+        }
+        break
+      }
+    } catch {
+      // Polling is best-effort; the dashboard banner still reflects the outcome.
+    } finally {
+      setState('idle')
+      router.refresh()
     }
   }
 

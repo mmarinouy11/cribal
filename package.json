@@ -22,6 +22,7 @@
     "scrape:catalog": "ts-node src/lib/scripts/scrape-catalog.ts",
     "fix:catalog:names": "ts-node src/lib/scripts/fix-catalog-names.ts",
     "audit:catalog-coverage": "ts-node src/lib/scripts/audit-catalog-coverage.ts",
+    "arce:health": "ts-node src/lib/scripts/arce-health.ts",
     "scheduler": "ts-node src/app/api/scheduler.ts",
     "postinstall": "prisma generate && PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers npx playwright install chromium --with-deps"
   },
@@ -45,7 +46,8 @@
     "react": "^18",
     "react-dom": "^18",
     "resend": "^6.18.0",
-    "rss-parser": "^3.13.0"
+    "rss-parser": "^3.13.0",
+    "undici": "^6.29.1"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

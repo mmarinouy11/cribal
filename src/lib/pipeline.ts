@@ -10,12 +10,28 @@ import { filterDuplicates } from './pipeline/deduplicator'
 import { classifyTenders } from './pipeline/classifier'
 import { ingestFailedTenders } from './pipeline/failed-tenders'
 import { sendDigest, type NicheDigestItem } from './email/digest'
+import { sendAdminFeedsDownAlert } from './email/admin-alert'
 import { enrichOpportunity } from './scraper/enricher'
-import { isDueToRun, daysUntilNextRun } from './cadence'
+import { isDueToRun, daysUntilNextRun, effectiveLookbackDays } from './cadence'
 
 interface PipelineError {
   stage: string
   message: string
+}
+
+// Outcome of a single company's run, so the orchestrator can detect a global
+// ARCE outage and raise one admin alert.
+export interface PipelineRunResult {
+  status: 'COMPLETED' | 'PARTIAL' | 'FAILED'
+  feedsTotal: number
+  feedsFailed: number
+  allFeedsFailed: boolean
+  errorSummary?: string
+}
+
+/** Short, human-readable summary of the failed feeds for logs/UI/email. */
+function summarizeFeedFailures(errors: { feed: string; error: string }[]): string {
+  return errors.map((e) => `${e.feed}: ${e.error}`).join(' | ')
 }
 
 /** Persist a RawPublication for a tender, swallowing save errors per item. */
@@ -51,12 +67,12 @@ async function saveRawPublication(
  * Run the full pipeline for a single company: fetch, normalize, filter,
  * classify with Claude, persist opportunities and send the digest email.
  */
-export async function runPipeline(companyId: string): Promise<void> {
+export async function runPipeline(companyId: string): Promise<PipelineRunResult> {
   // 1. Load company config.
   const company = await prisma.companyConfig.findUnique({ where: { id: companyId } })
   if (!company) {
     console.error(`[CRIBAL] Empresa ${companyId} no encontrada`)
-    return
+    return { status: 'FAILED', feedsTotal: 0, feedsFailed: 0, allFeedsFailed: false }
   }
 
   console.log(`[CRIBAL] Iniciando pipeline para ${company.companyName}...`)
@@ -69,11 +85,17 @@ export async function runPipeline(companyId: string): Promise<void> {
   const errors: PipelineError[] = []
 
   try {
-    // 3. Fetch RSS feeds.
-    const { items, errors: fetchErrors } = await fetchRssFeeds(company.rssFeeds)
+    // 3. Fetch RSS feeds (with retries + per-feed status).
+    const { items, errors: fetchErrors, feedStatuses } = await fetchRssFeeds(company.rssFeeds)
     for (const fetchError of fetchErrors) {
       errors.push({ stage: 'fetch', message: `${fetchError.feed}: ${fetchError.error}` })
     }
+
+    const feedsTotal = company.rssFeeds.length
+    const feedsFailed = feedStatuses.filter((f) => !f.ok).length
+    const allFeedsFailed = feedsTotal > 0 && feedsFailed === feedsTotal
+    const someFeedsFailed = feedsFailed > 0 && !allFeedsFailed
+
     await prisma.run.update({
       where: { id: run.id },
       data: {
@@ -82,6 +104,25 @@ export async function runPipeline(companyId: string): Promise<void> {
         errors: errors as unknown as Prisma.InputJsonValue,
       },
     })
+
+    // 3b. All feeds down → ARCE did not respond. Mark the run FAILED, do NOT
+    // advance lastSuccessfulRunAt (so the next run retries and the search window
+    // keeps widening), send no email, and report it to the caller.
+    if (allFeedsFailed) {
+      const errorSummary = summarizeFeedFailures(fetchErrors).slice(0, 500)
+      console.error(
+        `[CRIBAL] ARCE no respondió para ${company.companyName} — ${feedsFailed}/${feedsTotal} feeds caídos`
+      )
+      await prisma.run.update({
+        where: { id: run.id },
+        data: {
+          status: 'FAILED',
+          finishedAt: new Date(),
+          errors: errors as unknown as Prisma.InputJsonValue,
+        },
+      })
+      return { status: 'FAILED', feedsTotal, feedsFailed, allFeedsFailed: true, errorSummary }
+    }
 
     // 4. Normalize. Keep the raw item alongside so RawPublication can store it.
     const rawByOpportunityId = new Map<string, RssItem>()
@@ -94,8 +135,11 @@ export async function runPipeline(companyId: string): Promise<void> {
       }
     }
 
-    // 5. Date filter.
-    const afterDate = filterByDate(normalizedTenders, company.lookbackDays)
+    // 5. Date filter. The window widens to cover the gap since the last
+    // successful run (capped at 30 days) so a multi-day ARCE outage is caught up
+    // once it recovers — not just the configured lookbackDays.
+    const windowDays = effectiveLookbackDays(company.lastSuccessfulRunAt, company.lookbackDays, new Date())
+    const afterDate = filterByDate(normalizedTenders, windowDays)
     await prisma.run.update({
       where: { id: run.id },
       data: { itemsAfterDateFilter: afterDate.length },
@@ -337,33 +381,52 @@ export async function runPipeline(companyId: string): Promise<void> {
       )
     }
 
-    // 12. Send the digest email.
-    try {
-      await sendDigest(savedOpportunities, newTenders, company, run.id, newDigestNiches)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      errors.push({ stage: 'email', message })
-      console.error(`[CRIBAL][EMAIL] Error enviando email: ${message}`)
+    // 12. Send the digest email — but not for a partial run unless it produced
+    // new relevant opportunities (a partial run must never look like "no news").
+    const suppressEmail = someFeedsFailed && savedOpportunities.length === 0
+    if (suppressEmail) {
+      console.log(
+        `[CRIBAL][EMAIL] Corrida parcial sin relevantes — no se envía email (${company.companyName}, run ${run.id})`
+      )
+    } else {
+      try {
+        await sendDigest(savedOpportunities, newTenders, company, run.id, newDigestNiches)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        errors.push({ stage: 'email', message })
+        console.error(`[CRIBAL][EMAIL] Error enviando email: ${message}`)
+      }
     }
 
-    // 13. Mark the run as completed and advance the company's cadence timer.
-    // Only successful runs update lastSuccessfulRunAt so a FAILED run retries next cron.
+    // 13. Mark the run completed/partial. Only a fully successful run (every feed
+    // OK) advances lastSuccessfulRunAt, so a partial run retries next cron and the
+    // search window keeps covering the gap.
+    const finalStatus = someFeedsFailed ? 'PARTIAL' : 'COMPLETED'
     await prisma.run.update({
       where: { id: run.id },
       data: {
-        status: 'COMPLETED',
+        status: finalStatus,
         finishedAt: new Date(),
         errors: errors as unknown as Prisma.InputJsonValue,
       },
     })
-    await prisma.companyConfig.update({
-      where: { id: companyId },
-      data: { lastSuccessfulRunAt: new Date() },
-    })
+    if (finalStatus === 'COMPLETED') {
+      await prisma.companyConfig.update({
+        where: { id: companyId },
+        data: { lastSuccessfulRunAt: new Date() },
+      })
+    }
 
     console.log(
-      `[CRIBAL] Pipeline completado — ${company.companyName}: ${savedOpportunities.length} oportunidades guardadas`
+      `[CRIBAL] Pipeline ${finalStatus === 'PARTIAL' ? 'parcial' : 'completado'} — ${company.companyName}: ${savedOpportunities.length} oportunidades guardadas`
     )
+    return {
+      status: finalStatus,
+      feedsTotal,
+      feedsFailed,
+      allFeedsFailed: false,
+      errorSummary: someFeedsFailed ? summarizeFeedFailures(fetchErrors).slice(0, 500) : undefined,
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     errors.push({ stage: 'pipeline', message })
@@ -376,6 +439,13 @@ export async function runPipeline(companyId: string): Promise<void> {
         errors: errors as unknown as Prisma.InputJsonValue,
       },
     })
+    return {
+      status: 'FAILED',
+      feedsTotal: company.rssFeeds.length,
+      feedsFailed: 0,
+      allFeedsFailed: false,
+      errorSummary: message.slice(0, 500),
+    }
   }
 }
 
@@ -402,6 +472,7 @@ export async function runPipelineAllCompanies(
   const now = new Date()
   let ran = 0
   let skipped = 0
+  const results: PipelineRunResult[] = []
 
   for (const company of companies) {
     // Never spend API credits on an ownerless company (e.g. an orphan left by a
@@ -422,12 +493,25 @@ export async function runPipelineAllCompanies(
     }
 
     try {
-      await runPipeline(company.id)
+      results.push(await runPipeline(company.id))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.error(`${prefix} Error inesperado en ${company.companyName}: ${message}`)
     }
     ran++
+  }
+
+  // If every company that ran had all its feeds down, ARCE is unreachable from
+  // here — raise at most one admin alert per day.
+  const feedsDownCount = results.filter((r) => r.allFeedsFailed).length
+  if (ran > 0 && feedsDownCount === results.length && results.length > 0) {
+    const errorSummary = results.find((r) => r.errorSummary)?.errorSummary
+    try {
+      await sendAdminFeedsDownAlert(feedsDownCount, errorSummary)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`${prefix} Error enviando aviso al administrador: ${message}`)
+    }
   }
 
   console.log(
