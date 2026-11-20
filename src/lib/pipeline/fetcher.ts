@@ -1,4 +1,5 @@
 import Parser from 'rss-parser'
+import { arceFetch } from '../scraper/arce-http'
 
 export interface RssItem {
   title: string
@@ -53,7 +54,7 @@ async function fetchFeedXml(url: string): Promise<string> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS)
   try {
-    const response = await fetch(url, {
+    const response = await arceFetch(url, {
       headers: { 'User-Agent': USER_AGENT },
       cache: 'no-store',
       signal: controller.signal,

@@ -1,9 +1,11 @@
+import { arceFetch } from './arce-http'
+
 const USER_AGENT = 'Mozilla/5.0 (compatible; Cribal/1.0)'
 
 /** Fetch an ARCE page as text with the required User-Agent. Returns null on failure. */
 export async function fetchArceHtml(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url, {
+    const response = await arceFetch(url, {
       headers: { 'User-Agent': USER_AGENT },
       // Detail pages are dynamic; avoid Next.js data cache.
       cache: 'no-store',

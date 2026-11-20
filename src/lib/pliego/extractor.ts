@@ -1,4 +1,5 @@
 import AdmZip from 'adm-zip'
+import { arceFetch } from '../scraper/arce-http'
 
 const ARCE_BASE = 'https://www.comprasestatales.gub.uy'
 const USER_AGENT = 'Mozilla/5.0 (compatible; Cribal/1.0)'
@@ -53,7 +54,7 @@ export async function extractPliegoText(pliegoUrl: string): Promise<string | nul
 
   try {
     await delay(500)
-    const response = await fetch(url, {
+    const response = await arceFetch(url, {
       headers: { 'User-Agent': USER_AGENT },
       cache: 'no-store',
     })

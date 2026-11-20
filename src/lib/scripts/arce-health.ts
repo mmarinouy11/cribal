@@ -2,6 +2,7 @@ import 'dotenv/config'
 import dns from 'node:dns/promises'
 import net from 'node:net'
 import { familyFeedUrl } from '../arce/catalog'
+import { arceFetch, isArceProxyEnabled, maskedProxyUrl } from '../scraper/arce-http'
 
 /**
  * Diagnose connectivity to ARCE from wherever this runs (e.g. Railway). For the
@@ -79,7 +80,8 @@ async function checkHttp(url: string): Promise<string> {
   const timer = setTimeout(() => controller.abort(), STEP_TIMEOUT_MS)
   const start = Date.now()
   try {
-    const res = await fetch(url, {
+    // Uses arceFetch so the HTTP check honors ARCE_PROXY_URL when set.
+    const res = await arceFetch(url, {
       headers: { 'User-Agent': USER_AGENT },
       cache: 'no-store',
       signal: controller.signal,
@@ -100,6 +102,11 @@ async function checkHttp(url: string): Promise<string> {
 
 async function main(): Promise<void> {
   console.log('[ARCE-HEALTH] ===== Diagnóstico de conectividad con ARCE =====')
+  if (isArceProxyEnabled()) {
+    console.log(`[ARCE-HEALTH] Proxy ARCE: ACTIVO (${maskedProxyUrl()})`)
+  } else {
+    console.log('[ARCE-HEALTH] Proxy ARCE: no configurado (conexión directa)')
+  }
   await reportOutboundIp()
 
   for (const url of TARGETS) {
