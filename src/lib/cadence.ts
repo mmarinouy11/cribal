@@ -13,6 +13,26 @@ function daysSince(from: Date, now: Date): number {
   return Math.round((startOfDay(now).getTime() - startOfDay(from).getTime()) / MS_PER_DAY)
 }
 
+// Upper bound on the search window, so a long ARCE outage still produces a
+// bounded lookback once it recovers (and feeds only carry ~1000 recent items
+// anyway).
+export const MAX_LOOKBACK_DAYS = 30
+
+/**
+ * Effective search window in days: wide enough to cover the gap since the last
+ * successful run (so a multi-day outage is caught up when ARCE recovers), never
+ * narrower than the company's configured `lookbackDays`, and capped at
+ * `MAX_LOOKBACK_DAYS`. Before the first successful run, it is just `lookbackDays`.
+ */
+export function effectiveLookbackDays(
+  lastSuccessfulRunAt: Date | null,
+  lookbackDays: number,
+  now: Date
+): number {
+  const gap = lastSuccessfulRunAt ? daysSince(lastSuccessfulRunAt, now) : 0
+  return Math.min(MAX_LOOKBACK_DAYS, Math.max(lookbackDays, gap))
+}
+
 /**
  * A company is due to run when it has never run, or when at least `lookbackDays`
  * whole days have passed since its last successful run.

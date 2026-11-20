@@ -135,7 +135,20 @@ model Run {
 enum RunStatus {
   RUNNING
   COMPLETED
+  PARTIAL // some feeds failed; items from the healthy feeds were processed
   FAILED
+}
+
+// One row per day a global "all companies failed" admin alert was sent, so the
+// alert fires at most once per day (the unique alertDate guards it).
+model AdminAlertLog {
+  id                String   @id @default(uuid())
+  alertDate         String   @unique // UTC calendar day, "YYYY-MM-DD"
+  companiesAffected Int
+  errorSummary      String?
+  createdAt         DateTime @default(now())
+
+  @@map("admin_alert_logs")
 }
 
 model Opportunity {

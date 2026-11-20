@@ -1,6 +1,8 @@
 'use server'
 
+import type { RunStatus } from '@prisma/client'
 import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/db/prisma'
 import { runPipeline } from '@/lib/pipeline'
 
 export async function triggerRun(companyId?: string): Promise<{ message: string }> {
@@ -24,4 +26,31 @@ export async function triggerRun(companyId?: string): Promise<{ message: string 
   })
 
   return { message: 'Criba iniciada' }
+}
+
+export interface LatestRunStatus {
+  status: RunStatus
+  startedAt: string
+  finishedAt: string | null
+}
+
+/**
+ * Latest run status for the caller's company, used by the manual-run button to
+ * report the outcome (e.g. "ARCE no respondió") once the background run finishes.
+ */
+export async function getLatestRunStatus(): Promise<LatestRunStatus | null> {
+  const session = await auth()
+  if (!session) throw new Error('No autorizado')
+
+  const run = await prisma.run.findFirst({
+    where: { companyId: session.user.companyId },
+    orderBy: { startedAt: 'desc' },
+    select: { status: true, startedAt: true, finishedAt: true },
+  })
+  if (!run) return null
+  return {
+    status: run.status,
+    startedAt: run.startedAt.toISOString(),
+    finishedAt: run.finishedAt ? run.finishedAt.toISOString() : null,
+  }
 }
