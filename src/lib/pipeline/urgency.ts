@@ -21,6 +21,7 @@ export async function getUrgentOpportunities(companyId: string): Promise<Opportu
   const candidates = await prisma.opportunity.findMany({
     where: {
       companyId,
+      source: { not: 'onboarding' },
       status: { in: OPEN_STATUSES },
       closingDate: { gte: startOfToday(), lte: addDays(new Date(), 10) },
     },

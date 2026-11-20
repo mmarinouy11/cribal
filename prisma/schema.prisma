@@ -112,6 +112,7 @@ model Run {
   id                   String        @id @default(uuid())
   companyId            String
   company              CompanyConfig @relation(fields: [companyId], references: [id])
+  kind                 String        @default("pipeline") // "pipeline" | "onboarding" (synthetic calibration run)
   startedAt            DateTime      @default(now())
   finishedAt           DateTime?
   status               RunStatus     @default(RUNNING)
@@ -185,6 +186,7 @@ model Opportunity {
   opportunityId   String // "arce|1345906" — unique per company
   externalId      String
   sourceType      String    @default("ARCE")
+  source          String    @default("pipeline") // "pipeline" | "onboarding" (wizard calibration sample)
   publicationDate DateTime?
   detectedAt      DateTime  @default(now())
 

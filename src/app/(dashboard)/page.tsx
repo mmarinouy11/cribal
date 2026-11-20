@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { OpportunityStatus, RunStatus, NicheStatus } from '@prisma/client'
+import { OpportunityStatus, RunStatus, NicheStatus, type Prisma } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
 import { Card } from '@/components/ui/card'
@@ -90,6 +90,14 @@ export default async function DashboardPage() {
 
   const sevenDaysAgo = new Date()
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  const now = new Date()
+
+  // Onboarding calibration items are never counted or shown as real opportunities.
+  const realOpportunity: Prisma.OpportunityWhereInput = { companyId, source: { not: 'onboarding' } }
+  // "Active" also excludes opportunities whose closing date has already passed.
+  const notExpired: Prisma.OpportunityWhereInput = {
+    OR: [{ closingDate: null }, { closingDate: { gte: now } }],
+  }
 
   const [
     activeCount,
@@ -104,18 +112,20 @@ export default async function DashboardPage() {
     activeNiches,
   ] = await Promise.all([
     prisma.opportunity.count({
-      where: { companyId, status: { notIn: INACTIVE_STATUSES } },
+      where: { ...realOpportunity, status: { notIn: INACTIVE_STATUSES }, ...notExpired },
     }),
     prisma.opportunity.count({
       where: {
-        companyId,
+        ...realOpportunity,
         status: OpportunityStatus.NUEVA,
         createdAt: { gte: sevenDaysAgo },
       },
     }),
-    prisma.opportunity.count({ where: { companyId, score: { gte: 8 } } }),
+    prisma.opportunity.count({ where: { ...realOpportunity, score: { gte: 8 } } }),
+    // Only real pipeline runs drive "Última ejecución" — never the synthetic
+    // onboarding calibration run.
     prisma.run.findFirst({
-      where: { companyId },
+      where: { companyId, kind: { not: 'onboarding' } },
       orderBy: { startedAt: 'desc' },
     }),
     prisma.companyConfig.findUnique({
@@ -123,13 +133,13 @@ export default async function DashboardPage() {
       select: { lastSuccessfulRunAt: true, lookbackDays: true },
     }),
     prisma.opportunity.findMany({
-      where: { companyId },
+      where: realOpportunity,
       orderBy: { createdAt: 'desc' },
       take: 10,
     }),
     prisma.opportunity.findMany({
       where: {
-        companyId,
+        ...realOpportunity,
         status: { notIn: INACTIVE_STATUSES },
         closingDate: { gte: startOfToday(), lte: addDays(new Date(), 14) },
       },
@@ -203,28 +213,51 @@ export default async function DashboardPage() {
           ? 'mañana'
           : `en ${daysToNextRun} días`
 
-  // "Última ejecución" tri-state: never run / last failed / last successful.
+  // "Última ejecución" reads the real run's own status — a COMPLETED run is
+  // never shown as failed, and feedsChecked is irrelevant here.
   const lastRunValue = !lastRun
-    ? 'Sin ejecuciones'
-    : !lastSuccessfulRunAt
-      ? 'Última falló'
-      : formatRelativeTime(lastSuccessfulRunAt)
+    ? 'Sin corridas'
+    : lastRun.status === RunStatus.COMPLETED
+      ? formatRelativeTime(lastRun.finishedAt ?? lastRun.startedAt)
+      : lastRun.status === RunStatus.FAILED
+        ? 'Última falló'
+        : lastRun.status === RunStatus.PARTIAL
+          ? 'Parcial'
+          : 'Corriendo'
 
-  // Show an ARCE-down notice when the latest run failed or was partial.
-  const arceDown =
+  // Show a notice when the latest real run failed or was partial.
+  const runFailed =
     lastRun?.status === RunStatus.FAILED || lastRun?.status === RunStatus.PARTIAL
-  const arceDownAt = arceDown ? formatDateTime(lastRun.finishedAt ?? lastRun.startedAt) : null
+  const failedAt = runFailed ? formatDateTime(lastRun.finishedAt ?? lastRun.startedAt) : null
+
+  // No real pipeline run yet → clear empty state after registration.
+  const noRealRun = !lastRun
 
   return (
     <div className="space-y-6">
       <OnboardingBanner />
 
-      {arceDown && (
+      {noRealRun && (
+        <div className="flex items-start gap-3 rounded-xl border border-[#bae6fd] bg-[#f0f9ff] p-4">
+          <i className="ti ti-player-play mt-0.5 text-lg text-[#06b6d4]" aria-hidden />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-[#0c1e3c]">
+              Todavía no corrió la primera criba. Corré la criba ahora o esperá la próxima corrida
+              programada.
+            </p>
+            <div className="mt-2">
+              <RunPipelineButton label="Correr la criba ahora" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {runFailed && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <i className="ti ti-cloud-off mt-0.5 text-lg text-amber-600" aria-hidden />
           <div className="flex-1">
             <p className="text-sm font-medium text-[#92400e]">
-              ARCE no respondió en la última actualización ({arceDownAt}). Vamos a reintentar
+              ARCE no respondió en la última actualización ({failedAt}). Vamos a reintentar
               automáticamente en la próxima corrida.
             </p>
             <p className="mt-0.5 text-xs text-[#b45309]">
@@ -290,15 +323,7 @@ export default async function DashboardPage() {
               {nextRunLabel && (
                 <div className="text-[11px] text-[#94a3b8]">Próxima: {nextRunLabel}</div>
               )}
-              {lastRun &&
-              (lastRun.status === RunStatus.FAILED ||
-                lastRun.status === RunStatus.PARTIAL) ? (
-                <RunStatusBadge status={lastRun.status} />
-              ) : lastSuccessfulRunAt ? (
-                <RunStatusBadge status={RunStatus.COMPLETED} />
-              ) : lastRun ? (
-                <RunStatusBadge status={RunStatus.FAILED} />
-              ) : null}
+              {lastRun ? <RunStatusBadge status={lastRun.status} /> : null}
             </div>
           }
         />

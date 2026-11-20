@@ -63,7 +63,8 @@ export default async function OpportunitiesPage({
   const minScore = minScoreParam ? Number(minScoreParam) : undefined
   const page = Math.max(1, Number(pageParam) || 1)
 
-  const where: Prisma.OpportunityWhereInput = { companyId }
+  // Exclude onboarding calibration items — they are never real opportunities.
+  const where: Prisma.OpportunityWhereInput = { companyId, source: { not: 'onboarding' } }
 
   // Status: the filter chips (?status=…) win; otherwise the dashboard's
   // ?estado shortcut applies ("activas" = not closed, or a specific status).
