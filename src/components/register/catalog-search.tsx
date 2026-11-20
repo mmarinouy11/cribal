@@ -49,7 +49,9 @@ function isServiceItem(item: CatalogItem): boolean {
 /** Strip an ARCE "N-" code prefix for display. */
 function cleanSubfamily(name: string): string {
   const stripped = name.replace(/^\d+\s*-\s*/, '').trim()
-  return stripped || 'Sin subfamilia'
+  // Rows learned from tenders have no subfamily (null or "0-SIN CLASIFICAR").
+  if (!stripped || /^sin clasificar$/i.test(stripped)) return 'Sin clasificar'
+  return stripped
 }
 
 async function fetchCatalog(query: string, limit: number): Promise<SearchResponse> {
@@ -132,11 +134,12 @@ export function CatalogSearch({
     [activeQuery, searchResult, suggested]
   )
 
-  // Group displayed items by subfamily.
+  // Group displayed items by their display subfamily, so unclassified rows
+  // (null or "0-SIN CLASIFICAR") all land under a single "Sin clasificar" group.
   const groups = useMemo(() => {
     const map = new Map<string, CatalogItem[]>()
     for (const item of displayed.items) {
-      const key = item.subfamilyName || ''
+      const key = cleanSubfamily(item.subfamilyName)
       const list = map.get(key) ?? []
       list.push(item)
       map.set(key, list)

@@ -311,12 +311,16 @@ async function saveArticles(articles: Article[]): Promise<number> {
         nameNorm,
         familyText: article.familyText || null,
         subfamilyText: article.subfamilyText || null,
+        source: 'scraper',
       },
+      // The scraper is authoritative: overwrite the real data and reclassify a
+      // row that had been learned from a tender (source 'tender') to 'scraper'.
       update: {
         name: article.name,
         nameNorm,
         familyText: article.familyText || null,
         subfamilyText: article.subfamilyText || null,
+        source: 'scraper',
       },
     })
     saved += 1

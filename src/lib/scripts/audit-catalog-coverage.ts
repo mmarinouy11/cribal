@@ -4,6 +4,7 @@ import { fetchArceHtml, delay } from '../scraper/fetch-arce'
 import { isAdjudication, parseTenderDetail, parseAdjudicationDetail } from '../scraper/arce-parser'
 import { fetchRssFeeds } from '../pipeline/fetcher'
 import { familyFeedUrl } from '../arce/catalog'
+import { learnCatalogFromTenders } from '../catalog/learn-from-tenders'
 
 /**
  * Audit how much of the ARCE article catalog (catalog_articles) actually covers
@@ -162,16 +163,20 @@ interface CodeMeta {
 /**
  * Wide mode (`--wide`): sample the most recent calls of every active family's
  * RSS feed, read each detail page in memory, and measure catalog coverage of the
- * article codes they use. Read-only; nothing is persisted.
+ * article codes they use. Read-only unless `apply` is set, in which case it also
+ * teaches the catalog the new codes it finds (`learnCatalogFromTenders`).
  */
-async function runWide(): Promise<void> {
-  console.log('[CRIBAL][AUDIT] ===== Cobertura ampliada (--wide) =====')
+async function runWide(apply: boolean): Promise<void> {
+  console.log(
+    `[CRIBAL][AUDIT] ===== Cobertura ampliada (--wide${apply ? ' --apply' : ''}) =====`
+  )
 
   const stats: FamilyStat[] = []
   const allCodes = new Set<number>()
   const firstMetaByCode = new Map<number, CodeMeta>()
   let totalRead = 0
   let totalWithoutCodes = 0
+  let totalAdded = 0
 
   for (const familia of WIDE_FAMILIES) {
     const stat: FamilyStat = { familia, read: 0, withoutCodes: 0, distinctCodes: new Set() }
@@ -199,6 +204,12 @@ async function runWide(): Promise<void> {
         stat.withoutCodes += 1
         totalWithoutCodes += 1
         continue
+      }
+
+      // With --apply, teach the catalog this tender's new codes (per family).
+      if (apply) {
+        const { added } = await learnCatalogFromTenders(detailCodes, familia)
+        totalAdded += added
       }
 
       for (const { code, name } of detailCodes) {
@@ -266,11 +277,15 @@ async function runWide(): Promise<void> {
   // Calls that use no catalog code at all (free text / no items).
   console.log('[CRIBAL][AUDIT] ----- Sin código de catálogo -----')
   console.log(`[CRIBAL][AUDIT] Licitaciones sin código de catálogo: ${totalWithoutCodes} de ${totalRead}`)
+
+  if (apply) {
+    console.log(`[CRIBAL][AUDIT] Artículos agregados al catálogo: ${totalAdded}`)
+  }
 }
 
 async function main(): Promise<void> {
   if (process.argv.includes('--wide')) {
-    await runWide()
+    await runWide(process.argv.includes('--apply'))
     return
   }
 

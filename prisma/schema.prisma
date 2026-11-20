@@ -16,6 +16,7 @@ model CatalogArticle {
   nameNorm      String   @default("") // normalized name for search (see normalizeText)
   familyText    String?
   subfamilyText String?
+  source        String   @default("scraper") // "scraper" (authoritative) | "tender" (learned from a tender)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
