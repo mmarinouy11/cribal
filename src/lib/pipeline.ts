@@ -10,23 +10,40 @@ import { filterDuplicates } from './pipeline/deduplicator'
 import { classifyTenders } from './pipeline/classifier'
 import { ingestFailedTenders } from './pipeline/failed-tenders'
 import { sendDigest, type NicheDigestItem } from './email/digest'
-import { sendAdminFeedsDownAlert } from './email/admin-alert'
+import { sendAdminFeedsDownAlert, sendAdminAiBillingAlert } from './email/admin-alert'
 import { enrichOpportunity } from './scraper/enricher'
 import { isDueToRun, daysUntilNextRun, effectiveLookbackDays } from './cadence'
+import { AiServiceError, aiErrorReason } from './ai/errors'
 
 interface PipelineError {
   stage: string
   message: string
 }
 
+// Why a run failed, for the admin alert and the dashboard.
+export type FailureKind =
+  | 'feeds_down'
+  | 'ai_billing'
+  | 'ai_rate_limit'
+  | 'ai_unavailable'
+  | 'other'
+
 // Outcome of a single company's run, so the orchestrator can detect a global
-// ARCE outage and raise one admin alert.
+// ARCE outage or an AI billing problem and raise one admin alert.
 export interface PipelineRunResult {
   status: 'COMPLETED' | 'PARTIAL' | 'FAILED'
   feedsTotal: number
   feedsFailed: number
   allFeedsFailed: boolean
+  failureKind?: FailureKind
   errorSummary?: string
+}
+
+/** Map a thrown AiServiceError to a run failure kind. */
+function aiFailureKind(error: AiServiceError): FailureKind {
+  if (error.type === 'billing') return 'ai_billing'
+  if (error.type === 'rate_limit') return 'ai_rate_limit'
+  return 'ai_unavailable'
 }
 
 /** Short, human-readable summary of the failed feeds for logs/UI/email. */
@@ -118,10 +135,19 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
         data: {
           status: 'FAILED',
           finishedAt: new Date(),
+          failureReason: 'ARCE no respondió',
+          failureDetail: errorSummary,
           errors: errors as unknown as Prisma.InputJsonValue,
         },
       })
-      return { status: 'FAILED', feedsTotal, feedsFailed, allFeedsFailed: true, errorSummary }
+      return {
+        status: 'FAILED',
+        feedsTotal,
+        feedsFailed,
+        allFeedsFailed: true,
+        failureKind: 'feeds_down',
+        errorSummary,
+      }
     }
 
     // 4. Normalize. Keep the raw item alongside so RawPublication can store it.
@@ -244,8 +270,38 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
       },
     })
 
-    // 9. Classify with Claude.
-    const classifications = await classifyTenders(newTenders, company)
+    // 9. Classify with Claude. A fatal AI failure (no credit / throttled / down)
+    // must fail the run and NOT advance lastSuccessfulRunAt, like feeds down.
+    let classifications
+    try {
+      classifications = await classifyTenders(newTenders, company)
+    } catch (error) {
+      if (error instanceof AiServiceError) {
+        const kind = aiFailureKind(error)
+        const reason = `Falló: ${aiErrorReason(error.type)}`
+        errors.push({ stage: 'ai', message: `${error.type}: ${error.message}` })
+        console.error(`[CRIBAL] Clasificación IA falló para ${company.companyName}: ${error.type}`)
+        await prisma.run.update({
+          where: { id: run.id },
+          data: {
+            status: 'FAILED',
+            finishedAt: new Date(),
+            failureReason: aiErrorReason(error.type),
+            failureDetail: error.message.slice(0, 500),
+            errors: errors as unknown as Prisma.InputJsonValue,
+          },
+        })
+        return {
+          status: 'FAILED',
+          feedsTotal: company.rssFeeds.length,
+          feedsFailed,
+          allFeedsFailed: false,
+          failureKind: kind,
+          errorSummary: reason,
+        }
+      }
+      throw error
+    }
     const tenderByOpportunityId = new Map(newTenders.map((t) => [t.opportunityId, t]))
 
     // 10. Persist relevant opportunities; annotate the rest.
@@ -436,6 +492,8 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
       data: {
         status: 'FAILED',
         finishedAt: new Date(),
+        failureReason: 'error inesperado',
+        failureDetail: message.slice(0, 500),
         errors: errors as unknown as Prisma.InputJsonValue,
       },
     })
@@ -444,6 +502,7 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
       feedsTotal: company.rssFeeds.length,
       feedsFailed: 0,
       allFeedsFailed: false,
+      failureKind: 'other',
       errorSummary: message.slice(0, 500),
     }
   }
@@ -511,6 +570,17 @@ export async function runPipelineAllCompanies(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.error(`${prefix} Error enviando aviso al administrador: ${message}`)
+    }
+  }
+
+  // Any AI billing failure (no credit) → one admin alert per day.
+  const billing = results.filter((r) => r.failureKind === 'ai_billing')
+  if (billing.length > 0) {
+    try {
+      await sendAdminAiBillingAlert(billing.length, billing.find((r) => r.errorSummary)?.errorSummary)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`${prefix} Error enviando aviso de IA al administrador: ${message}`)
     }
   }
 

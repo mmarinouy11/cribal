@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
+import { logAiError } from '@/lib/ai/errors'
 
 const MODEL = 'claude-sonnet-4-6'
 
@@ -132,13 +133,18 @@ export async function generateProposal(opportunityId: string): Promise<string> {
   const { companyId, context } = await buildProposalContext(opportunityId)
 
   const callModel = async (): Promise<string> => {
-    const response = await getClient().messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: GENERATE_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: context }],
-    })
-    return textFromResponse(response)
+    try {
+      const response = await getClient().messages.create({
+        model: MODEL,
+        max_tokens: 4096,
+        system: GENERATE_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: context }],
+      })
+      return textFromResponse(response)
+    } catch (error) {
+      logAiError('generación de propuesta', error)
+      throw error
+    }
   }
 
   let fullText = await callModel()
@@ -218,13 +224,18 @@ ${instruction}`
   ]
 
   const callModel = async (): Promise<string> => {
-    const response = await getClient().messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: EDIT_SYSTEM_PROMPT,
-      messages: claudeMessages,
-    })
-    return textFromResponse(response)
+    try {
+      const response = await getClient().messages.create({
+        model: MODEL,
+        max_tokens: 4096,
+        system: EDIT_SYSTEM_PROMPT,
+        messages: claudeMessages,
+      })
+      return textFromResponse(response)
+    } catch (error) {
+      logAiError('edición de propuesta', error)
+      throw error
+    }
   }
 
   let result: { updatedProposal: string; message: string }

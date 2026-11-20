@@ -10,6 +10,7 @@ import Parser from 'rss-parser'
 import Anthropic from '@anthropic-ai/sdk'
 import { normalizeFeedToFamily } from '@/lib/arce/catalog'
 import { normalizeText } from '@/lib/text/normalize'
+import { logAiError } from '@/lib/ai/errors'
 import type {
   ValidationItem,
   ClassifiedValidationItem,
@@ -182,8 +183,7 @@ ${itemsBlock}`
       // Retry once on malformed JSON.
       return parseClassifications(await callModel(), validIds)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.error(`[CRIBAL][VALIDACION] Clasificación IA falló: ${message}`)
+      logAiError('muestra de validación del onboarding', error)
       return []
     }
   }

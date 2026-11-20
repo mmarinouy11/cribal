@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { CompanyConfig } from '@prisma/client'
 import type { NormalizedTender } from './normalizer'
+import { AiServiceError, classifyAiError, isFatalAiError, logAiError } from '@/lib/ai/errors'
 
 export interface ClassificationResult {
   opportunityId: string
@@ -92,22 +93,32 @@ async function classifyBatch(
     ? `${SYSTEM_PROMPT}\n\n${company.customAiPrompt}`
     : SYSTEM_PROMPT
 
+  // Call the model. A fatal AI-infrastructure failure (billing / rate limit /
+  // outage) is rethrown as AiServiceError so the run fails instead of silently
+  // producing zero opportunities; other errors fall through to the parse retry.
   const callModel = async (): Promise<string> => {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system,
-      messages: [{ role: 'user', content: userMessage }],
-    })
-    return response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-      .map((block) => block.text)
-      .join('')
+    try {
+      const response = await client.messages.create({
+        model: MODEL,
+        max_tokens: 4096,
+        system,
+        messages: [{ role: 'user', content: userMessage }],
+      })
+      return response.content
+        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+        .map((block) => block.text)
+        .join('')
+    } catch (apiError) {
+      const classified = logAiError('clasificación del pipeline', apiError)
+      if (isFatalAiError(classified.type)) throw new AiServiceError(classified)
+      throw apiError
+    }
   }
 
   try {
     return parseResponse(await callModel())
   } catch (firstError) {
+    if (firstError instanceof AiServiceError) throw firstError
     // Retry once on parse/JSON failure.
     const firstMessage =
       firstError instanceof Error ? firstError.message : String(firstError)
@@ -115,10 +126,10 @@ async function classifyBatch(
     try {
       return parseResponse(await callModel())
     } catch (secondError) {
-      const secondMessage =
-        secondError instanceof Error ? secondError.message : String(secondError)
+      if (secondError instanceof AiServiceError) throw secondError
+      const classified = classifyAiError(secondError)
       console.error(
-        `[CRIBAL][IA] Batch descartado tras segundo error de parseo: ${secondMessage}`
+        `[CRIBAL][IA] Batch descartado tras segundo error (${classified.type}): ${classified.message}`
       )
       return []
     }

@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { MarketAnalysis, Opportunity, Prisma } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
+import { logAiError } from '@/lib/ai/errors'
 import { extractPliegoText } from '@/lib/pliego/extractor'
 import { formatDateDMY, formatDateTime } from '@/lib/format'
 import type { TenderItem } from '@/lib/scraper/arce-parser'
@@ -240,8 +241,7 @@ export async function POST(
     })
     answer = textFromResponse(response)
   } catch (error) {
-    const errMessage = error instanceof Error ? error.message : String(error)
-    console.error(`[CRIBAL][CHAT] Error consultando a Claude (${opportunity.id}): ${errMessage}`)
+    logAiError(`chat de pliego (${opportunity.id})`, error)
     return NextResponse.json(
       { error: 'No se pudo obtener respuesta del asistente. Intentá nuevamente.' },
       { status: 502 }

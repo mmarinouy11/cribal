@@ -1,17 +1,27 @@
 'use server'
 
 import Anthropic from '@anthropic-ai/sdk'
+import { logAiError } from '@/lib/ai/errors'
 
 export interface CompanyLookupResult {
   description: string
   capabilities: string
   found: boolean
+  // 'ok' = info found, 'not_found' = no public info, 'error' = AI call failed.
+  status: 'ok' | 'not_found' | 'error'
 }
 
-const EMPTY_RESULT: CompanyLookupResult = {
+const NOT_FOUND_RESULT: CompanyLookupResult = {
   description: '',
   capabilities: '',
   found: false,
+  status: 'not_found',
+}
+const ERROR_RESULT: CompanyLookupResult = {
+  description: '',
+  capabilities: '',
+  found: false,
+  status: 'error',
 }
 
 const SYSTEM_PROMPT = `Sos un asistente que busca información sobre empresas para pre-completar un formulario de registro.
@@ -61,21 +71,23 @@ export async function lookupCompany(
       (block): block is Anthropic.TextBlock => block.type === 'text'
     )
     const textBlock = textBlocks[textBlocks.length - 1]
-    if (!textBlock) return EMPTY_RESULT
+    if (!textBlock) return NOT_FOUND_RESULT
 
     const clean = textBlock.text.replace(/```json|```/g, '').trim()
     const parsed: unknown = JSON.parse(clean)
-    if (typeof parsed !== 'object' || parsed === null) return EMPTY_RESULT
+    if (typeof parsed !== 'object' || parsed === null) return NOT_FOUND_RESULT
 
     const obj = parsed as Record<string, unknown>
+    const found = typeof obj.found === 'boolean' ? obj.found : false
     return {
       description: typeof obj.description === 'string' ? obj.description : '',
       capabilities: typeof obj.capabilities === 'string' ? obj.capabilities : '',
-      found: typeof obj.found === 'boolean' ? obj.found : false,
+      found,
+      status: found ? 'ok' : 'not_found',
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.error(`[CRIBAL][LOOKUP] Error buscando "${companyName}": ${message}`)
-    return EMPTY_RESULT
+    // An AI-call failure (billing, outage, …) is an error, not "no info".
+    logAiError(`búsqueda de empresa "${companyName}"`, error)
+    return ERROR_RESULT
   }
 }

@@ -126,6 +126,8 @@ model Run {
   failedTendersFound   Int           @default(0)
   nichesDetected       Int           @default(0)
   errors               Json          @default("[]")
+  failureReason        String? // short Spanish reason shown on the dashboard when FAILED/PARTIAL
+  failureDetail        String? // longer detail for the tooltip
   createdAt            DateTime      @default(now())
 
   opportunities   Opportunity[]
