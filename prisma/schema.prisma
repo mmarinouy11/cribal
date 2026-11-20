@@ -16,6 +16,7 @@ model CatalogArticle {
   nameNorm      String   @default("") // normalized name for search (see normalizeText)
   familyText    String?
   subfamilyText String?
+  source        String   @default("scraper") // "scraper" (authoritative) | "tender" (learned from a tender)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -137,6 +138,29 @@ enum RunStatus {
   COMPLETED
   PARTIAL // some feeds failed; items from the healthy feeds were processed
   FAILED
+}
+
+// Persistent progress for the catalog scraper (scrape:catalog). Lives in the DB
+// (not /app/data) so a redeploy or restart mid-scrape never loses progress: the
+// process dies, but relaunching resumes from here. One row per search "spec"
+// (familia / subfamilia / clase / subClase), keyed by the scraper's spec key.
+model CatalogScrapeSpec {
+  key           String   @id // specKey: familyText||subfamilyText||claseText||subClaseText
+  label         String
+  level         String // "familia" | "subfamilia" | "clase" | "subClase"
+  status        String   @default("pending") // "pending" | "completed" | "failed" | "truncated"
+  articleCount  Int      @default(0)
+  reason        String?
+  familyNumber  Int?
+  familyText    String
+  subfamilyText String?
+  claseText     String?
+  subClaseText  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@map("catalog_scrape_specs")
 }
 
 // One row per day a global "all companies failed" admin alert was sent, so the

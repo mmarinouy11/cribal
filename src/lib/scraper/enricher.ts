@@ -10,6 +10,40 @@ import {
   extractBuyObject,
   type TenderItem,
 } from './arce-parser'
+import { learnCatalogFromTenders, type LearnedItem } from '@/lib/catalog/learn-from-tenders'
+
+/**
+ * Best-effort: teach the catalog any new article codes this tender uses. The
+ * family is inferred from the tender's items that are already in the catalog
+ * (they share a family), so unknown codes are learned under the right family.
+ * Never throws — any failure is logged and enrichment continues.
+ */
+async function learnCatalogFromDetail(items: TenderItem[]): Promise<void> {
+  try {
+    const learned: LearnedItem[] = []
+    for (const item of items) {
+      const code = item.articleCode ? Number.parseInt(item.articleCode, 10) : Number.NaN
+      if (Number.isInteger(code) && code > 0) learned.push({ code, name: item.name })
+    }
+    if (learned.length === 0) return
+
+    // Infer the family from items already in the catalog.
+    const known = await prisma.catalogArticle.findMany({
+      where: { id: { in: learned.map((l) => l.code) } },
+      select: { familyText: true },
+    })
+    const familyNumber = known
+      .map((r) => r.familyText?.match(/^(\d+)/)?.[1])
+      .map((n) => (n ? Number(n) : null))
+      .find((n): n is number => n !== null) ?? null
+
+    const { added } = await learnCatalogFromTenders(learned, familyNumber)
+    if (added > 0) console.log(`[CRIBAL][ENRICH] Catálogo aprendió ${added} artículo(s) de una licitación`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[CRIBAL][ENRICH] learnCatalogFromTenders falló (ignorado): ${message}`)
+  }
+}
 
 const ARCE_DETAIL_BASE = 'https://www.comprasestatales.gub.uy/consultas/detalle/id'
 
@@ -80,6 +114,8 @@ export async function enrichOpportunity(opportunityId: string): Promise<void> {
       data.isElectronic = detail.isElectronic
       if (detail.items.length > 0) {
         data.tenderItems = detail.items as unknown as Prisma.InputJsonValue
+        // Teach the catalog any new codes this tender uses (best-effort).
+        await learnCatalogFromDetail(detail.items)
       }
       if (detail.publicationDate) data.publicationDate = detail.publicationDate
 

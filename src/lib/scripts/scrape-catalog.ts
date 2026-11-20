@@ -1,10 +1,10 @@
 import 'dotenv/config'
 import fs from 'node:fs'
-import path from 'node:path'
 import he from 'he'
 import type { Page } from 'playwright'
 import { prisma } from '../db/prisma'
 import { normalizeText } from '../text/normalize'
+import { isArceProxyEnabled, maskedProxyUrl } from '../scraper/arce-http'
 
 // Chromium is installed at build time under this persistent path (see the
 // postinstall script). Point Playwright at it before the runtime import below.
@@ -47,6 +47,34 @@ const SELECT_ATTEMPTS = 10
 const GOTO_TIMEOUT = 60000 // page.goto can be slow; give it a minute
 // Pauses before each retry of a failed search (fresh page each time).
 const RETRY_DELAYS = [5000, 15000, 15000]
+
+// Be gentle with ARCE: at least 3s between searches (configurable, never below
+// 3s), concurrency 1, and stop cleanly after 5 consecutive network failures.
+const SCRAPE_DELAY_MS = Math.max(3000, Number(process.env.CATALOG_SCRAPE_DELAY_MS) || 3000)
+const MAX_CONSECUTIVE_FAILURES = 5
+
+// Legacy JSON progress (imported once into the DB if the table is empty).
+const LEGACY_PROGRESS_FILE =
+  process.env.CATALOG_PROGRESS_FILE || '/app/data/catalog/scrape-progress.json'
+
+type SpecStatus = 'pending' | 'completed' | 'failed' | 'truncated'
+
+interface CliOptions {
+  report: boolean
+  onlyOpen: boolean
+  family: number | null
+}
+
+function parseCliOptions(argv: string[]): CliOptions {
+  const familyArg = argv.indexOf('--family')
+  const family =
+    familyArg >= 0 && argv[familyArg + 1] ? Number(argv[familyArg + 1]) : null
+  return {
+    report: argv.includes('--report'),
+    onlyOpen: argv.includes('--only-open'),
+    family: family !== null && Number.isFinite(family) ? family : null,
+  }
+}
 
 /** True when a search response hit ARCE's 1000-result cap. */
 function isTruncated(body: string, collected: number): boolean {
@@ -224,74 +252,127 @@ function specLabel(s: Spec): string {
   return [s.familyText, s.subfamilyText, s.claseText, s.subClaseText].filter(Boolean).join(' / ')
 }
 
-const PROGRESS_FILE =
-  process.env.CATALOG_PROGRESS_FILE || '/app/data/catalog/scrape-progress.json'
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// A search that could not complete (no response, timeout, missing option, …).
-// Kept out of `completed` so it is retried, and carries the spec for re-enqueue.
-interface FailedEntry {
-  key: string
-  label: string
-  reason: string
-  spec: Spec
+// ---------------------------------------------------------------------------
+// DB-backed progress (CatalogScrapeSpec) — survives redeploys and restarts.
+// ---------------------------------------------------------------------------
+
+function levelOf(spec: Spec): string {
+  if (spec.subClaseText) return 'subClase'
+  if (spec.claseText) return 'clase'
+  if (spec.subfamilyText) return 'subfamilia'
+  return 'familia'
 }
 
-interface Progress {
-  completed: Set<string> // spec keys fully handled (searched; children enqueued if truncated)
-  refined: Set<string> // subfamily/clase keys already expanded into children
-  pending: Spec[] // remaining work queue (incl. generated child specs) for mid-DFS resume
-  failed: FailedEntry[] // searches that failed after retries, to retry next run
-  totalSaved: number
+function familyNumberOf(spec: Spec): number | null {
+  const match = spec.familyText.match(/^(\d+)/)
+  return match ? Number(match[1]) : null
 }
 
-/** Load resume progress. */
-function loadProgress(): Progress {
-  try {
-    const raw = fs.readFileSync(PROGRESS_FILE, 'utf8')
-    const parsed = JSON.parse(raw) as {
-      completed?: string[]
-      refined?: string[]
-      pending?: Spec[]
-      failed?: FailedEntry[]
-      totalSaved?: number
-    }
-    return {
-      completed: new Set(parsed.completed ?? []),
-      refined: new Set(parsed.refined ?? []),
-      pending: parsed.pending ?? [],
-      failed: parsed.failed ?? [],
-      totalSaved: parsed.totalSaved ?? 0,
-    }
-  } catch {
-    return { completed: new Set(), refined: new Set(), pending: [], failed: [], totalSaved: 0 }
+function rowToSpec(row: {
+  familyText: string
+  subfamilyText: string | null
+  claseText: string | null
+  subClaseText: string | null
+}): Spec {
+  return {
+    familyText: row.familyText,
+    subfamilyText: row.subfamilyText,
+    claseText: row.claseText,
+    subClaseText: row.subClaseText,
   }
 }
 
-function saveProgress(progress: Progress, queue: Spec[], lastSpecLabel: string): void {
+/** Insert specs as `pending`, skipping any key already in the table. */
+async function enqueueSpecs(specs: Spec[]): Promise<void> {
+  if (specs.length === 0) return
+  await prisma.catalogScrapeSpec.createMany({
+    data: specs.map((spec) => ({
+      key: specKey(spec),
+      label: specLabel(spec),
+      level: levelOf(spec),
+      status: 'pending',
+      familyNumber: familyNumberOf(spec),
+      familyText: spec.familyText,
+      subfamilyText: spec.subfamilyText,
+      claseText: spec.claseText,
+      subClaseText: spec.subClaseText,
+    })),
+    skipDuplicates: true,
+  })
+}
+
+/** Record the outcome of a processed spec. */
+async function setSpecStatus(
+  spec: Spec,
+  status: SpecStatus,
+  articleCount: number,
+  reason: string | null
+): Promise<void> {
+  const key = specKey(spec)
+  const base = {
+    label: specLabel(spec),
+    level: levelOf(spec),
+    familyNumber: familyNumberOf(spec),
+    familyText: spec.familyText,
+    subfamilyText: spec.subfamilyText,
+    claseText: spec.claseText,
+    subClaseText: spec.subClaseText,
+  }
+  await prisma.catalogScrapeSpec.upsert({
+    where: { key },
+    create: { key, status, articleCount, reason, ...base },
+    update: { status, articleCount, reason, ...base },
+  })
+}
+
+/**
+ * Import the legacy JSON progress into the DB once, only when the table is
+ * empty. Completed/refined keys become `completed` rows, pending specs become
+ * `pending`, failed specs become `failed`. Best-effort — a parse error is
+ * ignored (a fresh enumeration then runs instead).
+ */
+async function importLegacyProgressIfEmpty(): Promise<void> {
+  const count = await prisma.catalogScrapeSpec.count()
+  if (count > 0) return
+
+  let parsed: {
+    completed?: string[]
+    pending?: Spec[]
+    failed?: { spec: Spec }[]
+  }
   try {
-    fs.mkdirSync(path.dirname(PROGRESS_FILE), { recursive: true })
-    fs.writeFileSync(
-      PROGRESS_FILE,
-      JSON.stringify(
-        {
-          lastSpec: lastSpecLabel,
-          totalSaved: progress.totalSaved,
-          completed: [...progress.completed],
-          refined: [...progress.refined],
-          pending: queue,
-          failed: progress.failed,
-        },
-        null,
-        2
-      )
-    )
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[CATALOG] No se pudo guardar el progreso: ${message}`)
+    parsed = JSON.parse(fs.readFileSync(LEGACY_PROGRESS_FILE, 'utf8'))
+  } catch {
+    return // no legacy file — nothing to import
+  }
+
+  // Completed keys are 4-part spec keys; rebuild a Spec from each.
+  const specFromKey = (key: string): Spec => {
+    const [familyText, subfamilyText, claseText, subClaseText] = key.split('||')
+    return {
+      familyText,
+      subfamilyText: subfamilyText || null,
+      claseText: claseText || null,
+      subClaseText: subClaseText || null,
+    }
+  }
+
+  for (const key of parsed.completed ?? []) {
+    if (key.split('||').length !== 4) continue
+    await setSpecStatus(specFromKey(key), 'completed', 0, null)
+  }
+  await enqueueSpecs(parsed.pending ?? [])
+  for (const entry of parsed.failed ?? []) {
+    if (entry?.spec) await setSpecStatus(entry.spec, 'failed', 0, 'importado del progreso anterior')
+  }
+
+  const imported = await prisma.catalogScrapeSpec.count()
+  if (imported > 0) {
+    console.log(`[CATALOG] Progreso anterior importado del JSON: ${imported} specs`)
   }
 }
 
@@ -311,12 +392,16 @@ async function saveArticles(articles: Article[]): Promise<number> {
         nameNorm,
         familyText: article.familyText || null,
         subfamilyText: article.subfamilyText || null,
+        source: 'scraper',
       },
+      // The scraper is authoritative: overwrite the real data and reclassify a
+      // row that had been learned from a tender (source 'tender') to 'scraper'.
       update: {
         name: article.name,
         nameNorm,
         familyText: article.familyText || null,
         subfamilyText: article.subfamilyText || null,
+        source: 'scraper',
       },
     })
     saved += 1
@@ -533,99 +618,144 @@ async function fixExistingNames(): Promise<void> {
   if (fixed > 0) console.log(`[CATALOG] Nombres con entidades HTML corregidos: ${fixed}`)
 }
 
-/**
- * Clean the progress file at startup:
- * - Migrate pre-refinement 2-part keys (familia||subfamilia) to the 4-part spec
- *   form.
- * - Re-open any subfamily entry that the DB shows is incomplete so it reruns:
- *   0 articles (a past failure wrongly marked complete) or still at the 1000 cap
- *   (truncated). Refined subfamilies are left alone — their classes cover them.
- */
-async function migrateAndPrune(progress: Progress): Promise<void> {
-  const migrated = new Set<string>()
-  for (const key of progress.completed) {
-    const parts = key.split('||')
-    migrated.add(parts.length === 2 ? `${parts[0]}||${parts[1]}||||` : key)
+/** Print the DB progress (by status, plus the truncated list). No Playwright. */
+async function printReport(family: number | null): Promise<void> {
+  const where = family !== null ? { familyNumber: family } : {}
+  console.log(
+    `[CATALOG] ===== Reporte de progreso${family !== null ? ` (familia ${family})` : ''} =====`
+  )
+  const grouped = await prisma.catalogScrapeSpec.groupBy({
+    by: ['status'],
+    where,
+    _count: { _all: true },
+  })
+  if (grouped.length === 0) {
+    console.log('[CATALOG] Sin specs registradas todavía.')
+    return
   }
-  progress.completed = migrated
+  for (const group of [...grouped].sort((a, b) => a.status.localeCompare(b.status))) {
+    console.log(`[CATALOG]   ${group.status}: ${group._count._all}`)
+  }
 
-  for (const key of [...progress.completed]) {
-    const [family, subfamily, clase, subclase] = key.split('||')
-    const isSubfamilyLevel = Boolean(subfamily) && !clase && !subclase
-    if (!isSubfamilyLevel || progress.refined.has(key)) continue
-    const count = await prisma.catalogArticle.count({
-      where: { familyText: family, subfamilyText: subfamily },
-    })
-    if (count === 0) {
-      progress.completed.delete(key)
-      console.log(`[CATALOG] Re-scrape por 0 artículos: ${family} / ${subfamily}`)
-    } else if (count >= RESULT_CAP) {
-      progress.completed.delete(key)
-      console.log(`[CATALOG] Re-scrape por tope (${count}≥${RESULT_CAP}): ${family} / ${subfamily}`)
+  const truncated = await prisma.catalogScrapeSpec.findMany({
+    where: { ...where, status: 'truncated' },
+    orderBy: { articleCount: 'desc' },
+    select: { label: true, articleCount: true },
+  })
+  if (truncated.length > 0) {
+    console.log(`[CATALOG] ----- Truncadas (tope ${RESULT_CAP} en el nivel más fino) -----`)
+    for (const spec of truncated) {
+      console.log(`[CATALOG]   ${spec.label} — ${spec.articleCount} artículos`)
     }
   }
 }
 
+/** Build the Playwright launch options, adding the ARCE proxy when configured. */
+function buildLaunchOptions(): import('playwright').LaunchOptions {
+  const options: import('playwright').LaunchOptions = {
+    headless: true,
+    executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined,
+  }
+  if (isArceProxyEnabled()) {
+    try {
+      const url = new URL(process.env.ARCE_PROXY_URL as string)
+      options.proxy = {
+        server: `${url.protocol}//${url.host}`,
+        ...(url.username ? { username: decodeURIComponent(url.username) } : {}),
+        ...(url.password ? { password: decodeURIComponent(url.password) } : {}),
+      }
+      console.log(`[CATALOG] Usando proxy para ARCE: ${maskedProxyUrl()}`)
+    } catch {
+      console.warn('[CATALOG] ARCE_PROXY_URL no es una URL válida; se ignora el proxy')
+    }
+  }
+  return options
+}
+
+/** Enumerate initial family/subfamily specs when the DB has none for this scope. */
+async function ensureEnumerated(
+  browser: import('playwright').Browser,
+  family: number | null
+): Promise<void> {
+  const where = family !== null ? { familyNumber: family } : {}
+  if ((await prisma.catalogScrapeSpec.count({ where })) > 0) return
+
+  const enumPage = await browser.newPage()
+  enumPage.setDefaultTimeout(30000)
+  let specs: Spec[]
+  try {
+    specs = await enumerateSpecs(enumPage)
+  } finally {
+    await enumPage.close()
+  }
+  if (family !== null) specs = specs.filter((s) => familyNumberOf(s) === family)
+  await enqueueSpecs(specs)
+  console.log(
+    `[CATALOG] ${specs.length} búsquedas iniciales encoladas${family !== null ? ` (familia ${family})` : ''}`
+  )
+}
+
+/** A failed search counts toward the ARCE-down safety cut only when it looks
+ * like a network problem (timeout / no response), not a missing filter option. */
+function isNetworkFailure(reason: string | undefined): boolean {
+  return /timeout|sin respuesta|error:/i.test(reason ?? '')
+}
+
 async function main(): Promise<void> {
-  const progress = loadProgress()
-  if (progress.completed.size > 0) {
-    console.log(
-      `[CATALOG] Reanudando — ${progress.completed.size} búsquedas completadas, ${progress.refined.size} refinadas`
-    )
+  const opts = parseCliOptions(process.argv)
+
+  // Report mode: read-only, prints the DB state, never opens Chromium.
+  if (opts.report) {
+    await printReport(opts.family)
+    return
   }
 
-  // Previous run's failures are retried this run; reset the list so it reflects
-  // only what fails now.
-  const previousFailures = progress.failed
-  progress.failed = []
+  // One-time import of the legacy JSON progress (no-op if the table has data).
+  await importLegacyProgressIfEmpty()
 
   await fixExistingNames()
-  await migrateAndPrune(progress)
 
   const { chromium } = await import('playwright')
-  const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined
-  const browser = await chromium.launch({ headless: true, executablePath })
+  const browser = await chromium.launch(buildLaunchOptions())
 
-  const stillTruncated: string[] = []
+  let totalSaved = 0
+  let aborted = false
 
   try {
-    // Resume a mid-DFS run from the persisted queue; otherwise enumerate fresh.
-    let queue: Spec[]
-    if (progress.pending.length > 0) {
-      queue = progress.pending
-      console.log(`[CATALOG] Reanudando cola — ${queue.length} búsquedas pendientes`)
-    } else {
-      const enumPage = await browser.newPage()
-      enumPage.setDefaultTimeout(30000)
-      try {
-        queue = await enumerateSpecs(enumPage)
-      } finally {
-        await enumPage.close()
-      }
-      console.log(`[CATALOG] ${queue.length} búsquedas iniciales (familia/subfamilia)`)
-    }
+    // Default mode enumerates a fresh scope; --only-open works on existing rows.
+    if (!opts.onlyOpen) await ensureEnumerated(browser, opts.family)
 
-    // Re-enqueue specs that failed on an earlier run (deduped against the queue
-    // and anything already completed).
-    const queueKeys = new Set(queue.map(specKey))
-    let reEnqueued = 0
-    for (const f of previousFailures) {
-      if (queueKeys.has(f.key) || progress.completed.has(f.key)) continue
-      queue.push(f.spec)
-      queueKeys.add(f.key)
-      reEnqueued += 1
-    }
-    if (reEnqueued > 0) {
-      console.log(`[CATALOG] ${reEnqueued} búsqueda(s) fallida(s) previa(s) reencoladas para reintentar`)
-    }
+    const familyWhere = opts.family !== null ? { familyNumber: opts.family } : {}
+    const statuses: SpecStatus[] = opts.onlyOpen ? ['failed', 'truncated'] : ['pending', 'failed']
+
+    // Estimate the work ahead.
+    const [pendingN, failedN, truncatedN] = await Promise.all([
+      prisma.catalogScrapeSpec.count({ where: { ...familyWhere, status: 'pending' } }),
+      prisma.catalogScrapeSpec.count({ where: { ...familyWhere, status: 'failed' } }),
+      prisma.catalogScrapeSpec.count({ where: { ...familyWhere, status: 'truncated' } }),
+    ])
+    console.log(
+      `[CATALOG] Pendientes — sin procesar: ${pendingN}, fallidas: ${failedN}, truncadas: ${truncatedN}`
+    )
+
+    const openRows = await prisma.catalogScrapeSpec.findMany({
+      where: { ...familyWhere, status: { in: statuses } },
+    })
+    const queue: Spec[] = openRows.map(rowToSpec)
+    console.log(`[CATALOG] A procesar en esta corrida: ${queue.length}`)
+
+    const completedRows = await prisma.catalogScrapeSpec.findMany({
+      where: { status: 'completed' },
+      select: { key: true },
+    })
+    const completedKeys = new Set(completedRows.map((r) => r.key))
+    const seen = new Set(queue.map(specKey))
+    let consecutiveNetFailures = 0
 
     while (queue.length > 0) {
       const spec = queue.shift() as Spec
       const key = specKey(spec)
-      if (progress.completed.has(key)) {
-        saveProgress(progress, queue, specLabel(spec))
-        continue
-      }
+      if (completedKeys.has(key)) continue
 
       console.log(`[CATALOG] Procesando: ${specLabel(spec)}`)
       let result = await runSpec(browser, spec)
@@ -638,72 +768,67 @@ async function main(): Promise<void> {
       }
 
       if (result.status === 'failed') {
-        // Never mark a failure as completed — record it for the summary and for
-        // retry on the next run.
-        progress.failed.push({ key, label: specLabel(spec), reason: result.reason ?? 'desconocido', spec })
-        console.log(`[CATALOG] ✗ Falló tras reintentos: ${specLabel(spec)} — ${result.reason}`)
-        saveProgress(progress, queue, specLabel(spec))
-        await sleep(1000)
+        await setSpecStatus(spec, 'failed', 0, result.reason ?? 'desconocido')
+        console.log(`[CATALOG] ✗ Falló: ${specLabel(spec)} — ${result.reason}`)
+        // Safety cut: stop cleanly after too many consecutive network failures.
+        consecutiveNetFailures = isNetworkFailure(result.reason) ? consecutiveNetFailures + 1 : 0
+        if (consecutiveNetFailures >= MAX_CONSECUTIVE_FAILURES) {
+          console.error(
+            '[CATALOG] ARCE dejó de responder; parando. Reintentá más tarde con el mismo comando.'
+          )
+          aborted = true
+          break
+        }
+        await sleep(SCRAPE_DELAY_MS)
         continue
       }
 
+      consecutiveNetFailures = 0 // a success clears the safety counter
       const savedNow = await saveArticles(result.articles)
-      progress.totalSaved += savedNow
+      totalSaved += savedNow
 
       if (result.truncated && result.childField && result.childOptions.length > 0) {
         const levelName = result.childField === 'claseText' ? 'clase' : 'subclase'
-        console.log(
-          `[CATALOG] Subfamilia ${specLabel(spec)} truncada → refinando por ${levelName} (${result.childOptions.length} ${levelName}s).`
-        )
         const children: Spec[] = result.childOptions.map((text) => ({
           ...spec,
           [result.childField as 'claseText' | 'subClaseText']: text,
         }))
-        // Process children next (DFS) so a truncated branch is fully refined
-        // before moving on — keeps progress/logs coherent.
-        queue.unshift(...children)
-        progress.refined.add(key)
-        progress.completed.add(key)
-      } else {
-        progress.completed.add(key)
-        if (result.truncated) {
-          // Truncated with no finer level left — a genuine coverage gap.
-          stillTruncated.push(specLabel(spec))
-          console.log(`[CATALOG] ⚠ ${specLabel(spec)} sigue truncada y no hay nivel más fino`)
+        await enqueueSpecs(children) // persist children so a restart still has them
+        for (const child of children) {
+          const childKey = specKey(child)
+          if (!seen.has(childKey) && !completedKeys.has(childKey)) {
+            seen.add(childKey)
+            queue.push(child)
+          }
         }
+        // The parent's first 1000 are saved; its children cover the rest.
+        await setSpecStatus(spec, 'completed', result.articles.length, null)
+        completedKeys.add(key)
+        console.log(
+          `[CATALOG] ${specLabel(spec)} truncada → refinando por ${levelName} (${children.length} ${levelName}s).`
+        )
+      } else if (result.truncated) {
+        // Exactly at the 1000 cap with no finer level — record it as truncated.
+        await setSpecStatus(spec, 'truncated', result.articles.length, `tope ${RESULT_CAP} sin nivel más fino`)
+        console.log(`[CATALOG] ⚠ ${specLabel(spec)} truncada (${result.articles.length}) sin nivel más fino`)
+      } else {
+        await setSpecStatus(spec, 'completed', result.articles.length, null)
+        completedKeys.add(key)
       }
 
-      saveProgress(progress, queue, specLabel(spec))
       console.log(
-        `[CATALOG]   → ${result.articles.length} scrapeados, ${savedNow} guardados (acumulado ${progress.totalSaved})`
+        `[CATALOG]   → ${result.articles.length} scrapeados, ${savedNow} guardados (acumulado ${totalSaved})`
       )
-
-      // Pause between searches to be respectful to ARCE.
-      await sleep(1000)
+      await sleep(SCRAPE_DELAY_MS)
     }
   } finally {
     await browser.close()
   }
 
-  console.log(`[CATALOG] Completado — ${progress.totalSaved} artículos guardados en total`)
-
-  if (progress.failed.length > 0) {
-    console.log(
-      `[CATALOG] ✗ ${progress.failed.length} búsqueda(s) fallaron (se reintentarán en la próxima corrida):`
-    )
-    for (const f of progress.failed) console.log(`[CATALOG]   - ${f.label} — ${f.reason}`)
-  } else {
-    console.log('[CATALOG] Sin búsquedas fallidas')
-  }
-
-  if (stillTruncated.length > 0) {
-    console.log(
-      `[CATALOG] ⚠ ${stillTruncated.length} búsqueda(s) siguieron truncadas tras agotar los niveles:`
-    )
-    for (const label of stillTruncated) console.log(`[CATALOG]   - ${label}`)
-  } else {
-    console.log('[CATALOG] Sin búsquedas truncadas pendientes — cobertura completa')
-  }
+  console.log(
+    `[CATALOG] ${aborted ? 'Corrida interrumpida' : 'Corrida finalizada'} — ${totalSaved} artículos guardados`
+  )
+  await printReport(opts.family)
 }
 
 main()
