@@ -47,6 +47,8 @@ const SELECT_ATTEMPTS = 10
 const GOTO_TIMEOUT = 60000 // page.goto can be slow; give it a minute
 // Pauses before each retry of a failed search (fresh page each time).
 const RETRY_DELAYS = [5000, 15000, 15000]
+// Pauses before each retry when opening the catalog page (fresh page each time).
+const CATALOG_OPEN_RETRIES = [5000, 15000, 30000]
 
 // Be gentle with ARCE: at least 3s between searches (configurable, never below
 // 3s), concurrency 1, and stop cleanly after 5 consecutive network failures.
@@ -459,10 +461,54 @@ async function selectOptionByText(page: Page, selector: string, text: string): P
   return true
 }
 
-/** Enumerate the initial family/subfamily specs (one lightweight session). */
+/** Thrown when the catalog page cannot be opened after all retries. */
+class CatalogUnavailableError extends Error {
+  constructor() {
+    super('ARCE no respondió al abrir el catálogo')
+    this.name = 'CatalogUnavailableError'
+  }
+}
+
+/**
+ * Load the catalog on an existing page: a 60s navigation that resolves on
+ * `domcontentloaded`, followed by an explicit wait for the family <select> — so
+ * readiness is confirmed by the DOM, not by an arbitrary fixed delay. Throws on
+ * navigation timeout or if the select never appears.
+ */
+async function loadCatalog(page: Page): Promise<void> {
+  await page.goto(CATALOG_URL, { timeout: GOTO_TIMEOUT, waitUntil: 'domcontentloaded' })
+  await page.waitForSelector(FAMILIA_SELECT, { timeout: GOTO_TIMEOUT })
+}
+
+/**
+ * Open the catalog on a FRESH page, retrying up to 3 times (5s/15s/30s) — the
+ * first access to ARCE can time out. Returns the loaded page (the caller closes
+ * it) or throws CatalogUnavailableError once the retries are exhausted.
+ */
+async function openCatalogPage(browser: import('playwright').Browser): Promise<Page> {
+  for (let attempt = 1; attempt <= CATALOG_OPEN_RETRIES.length + 1; attempt++) {
+    const page = await browser.newPage()
+    page.setDefaultTimeout(30000)
+    try {
+      await loadCatalog(page)
+      return page
+    } catch (error) {
+      await page.close()
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[CATALOG] No se pudo abrir el catálogo (intento ${attempt}): ${message}`)
+      if (attempt <= CATALOG_OPEN_RETRIES.length) {
+        const waitMs = CATALOG_OPEN_RETRIES[attempt - 1]
+        console.log(`[CATALOG] Reintentando abrir el catálogo en ${waitMs / 1000}s…`)
+        await sleep(waitMs)
+      }
+    }
+  }
+  throw new CatalogUnavailableError()
+}
+
+/** Enumerate the initial family/subfamily specs on an already-loaded page. */
 async function enumerateSpecs(page: Page): Promise<Spec[]> {
-  await page.goto(CATALOG_URL)
-  await page.waitForTimeout(3000)
+  await page.waitForTimeout(1000) // let ICEfaces finish wiring the selects
 
   const familyOptions = await readOptions(page, FAMILIA_SELECT)
   console.log(`[CATALOG] ${familyOptions.length} familias`)
@@ -528,11 +574,13 @@ async function runSpec(
   page.setDefaultTimeout(30000)
   try {
     try {
-      await page.goto(CATALOG_URL, { timeout: GOTO_TIMEOUT })
+      // Same hardened load as the enumeration: 60s, domcontentloaded + an
+      // explicit wait for the family select. The main loop retries on failure.
+      await loadCatalog(page)
     } catch {
       return fail('timeout cargando la página')
     }
-    await page.waitForTimeout(3000)
+    await page.waitForTimeout(2000) // let ICEfaces finish initializing
 
     if (!(await selectOptionByText(page, FAMILIA_SELECT, spec.familyText))) {
       return fail('familia no encontrada en página fresca')
@@ -680,8 +728,9 @@ async function ensureEnumerated(
   const where = family !== null ? { familyNumber: family } : {}
   if ((await prisma.catalogScrapeSpec.count({ where })) > 0) return
 
-  const enumPage = await browser.newPage()
-  enumPage.setDefaultTimeout(30000)
+  // Hardened open with retries; throws CatalogUnavailableError if ARCE never
+  // responds, which main() turns into a clean stop.
+  const enumPage = await openCatalogPage(browser)
   let specs: Spec[]
   try {
     specs = await enumerateSpecs(enumPage)
@@ -723,7 +772,21 @@ async function main(): Promise<void> {
 
   try {
     // Default mode enumerates a fresh scope; --only-open works on existing rows.
-    if (!opts.onlyOpen) await ensureEnumerated(browser, opts.family)
+    // A catalog-open failure is a network failure: like the 5-consecutive-failure
+    // safety cut, stop cleanly (no stack trace) without recording any progress.
+    if (!opts.onlyOpen) {
+      try {
+        await ensureEnumerated(browser, opts.family)
+      } catch (error) {
+        if (error instanceof CatalogUnavailableError) {
+          console.error(
+            '[CATALOG] ARCE no respondió al abrir el catálogo; no se registró ningún avance. Reintentá más tarde con el mismo comando.'
+          )
+          return
+        }
+        throw error
+      }
+    }
 
     const familyWhere = opts.family !== null ? { familyNumber: opts.family } : {}
     const statuses: SpecStatus[] = opts.onlyOpen ? ['failed', 'truncated'] : ['pending', 'failed']
