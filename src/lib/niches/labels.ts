@@ -7,12 +7,12 @@ import { NicheCategory } from '@prisma/client'
  *
  * NUCLEO  → "Tu especialidad" (what the company already does)
  * ADYACENTE → "Cercano" (neighbouring lines it could grow into)
- * FUERA   → "Exploratorio" (further afield; normally filtered out of the UI)
+ * FUERA   → "Fuera de foco" (further afield; normally filtered out of the UI)
  */
 export const NICHE_CATEGORY_LABELS: Record<NicheCategory, string> = {
   NUCLEO: 'Tu especialidad',
   ADYACENTE: 'Cercano',
-  FUERA: 'Exploratorio',
+  FUERA: 'Fuera de foco',
 }
 
 export function nicheCategoryLabel(category: NicheCategory): string {

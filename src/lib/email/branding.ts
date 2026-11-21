@@ -87,7 +87,7 @@ export function renderFooter(): string {
   return `
   <tr>
     <td style="background-color:${EMAIL_COLORS.navy};padding:20px 28px;text-align:center;">
-      <a href="${APP_URL}" target="_blank" style="color:${EMAIL_COLORS.accent};font-size:13px;text-decoration:none;font-weight:500;">Abrir Cribal →</a>
+      <a href="${APP_URL}/tablero" target="_blank" style="color:${EMAIL_COLORS.accent};font-size:13px;text-decoration:none;font-weight:500;">Abrir Cribal →</a>
       <div style="font-size:11px;color:${EMAIL_COLORS.textSecondary};margin-top:10px;">
         Inteligencia de oportunidades · Generado automáticamente
       </div>

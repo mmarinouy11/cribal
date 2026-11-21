@@ -34,7 +34,7 @@ export function buildWelcomeHtml(userName: string, companyName: string): string 
         <li style="margin-bottom:6px;">Podés correr el pipeline manualmente desde el dashboard.</li>
       </ol>
 
-      <a href="${APP_URL}" target="_blank" style="display:inline-block;font-size:14px;font-weight:600;color:#ffffff;background:#0c1e3c;padding:10px 18px;border-radius:6px;text-decoration:none;">Ir al dashboard</a>
+      <a href="${APP_URL}/tablero" target="_blank" style="display:inline-block;font-size:14px;font-weight:600;color:#ffffff;background:#0c1e3c;padding:10px 18px;border-radius:6px;text-decoration:none;">Ir al tablero</a>
 
       <p style="margin:20px 0 0 0;font-size:13px;color:#64748b;">
         Tip: completá tu perfil de empresa para obtener propuestas más personalizadas.

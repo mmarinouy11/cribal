@@ -9,6 +9,11 @@ import { LogoMark } from '@/components/ui/logo'
 // brand guide. Nothing here is invented: pricing and testimonials are left as
 // visible TODOs because they are not defined yet.
 
+// Sections that still hold placeholder TODOs (pricing/plans, testimonials,
+// client logos) stay hidden in production. Flip to true once real content
+// exists; no "TODO" marker is ever shown to the public while this is false.
+const SHOW_PENDING_SECTIONS = false
+
 export const metadata: Metadata = {
   title: 'Cribal — Oportunidades de compras estatales con IA',
   description:
@@ -292,20 +297,23 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        {/* TODO: content not defined yet — clearly marked so the team can fill or
-            remove it. Listed in the Part 5 summary / docs. */}
-        <section className="px-4 py-10" aria-label="Contenido pendiente de definir">
-          <div className="mx-auto max-w-3xl space-y-3">
-            <div className="rounded-xl border-2 border-dashed border-[#f59e0b] bg-[#fffbeb] p-5 text-sm text-[#92400e]">
-              <strong>TODO:</strong> Planes y precios — no están definidos todavía. No se muestran
-              cifras inventadas.
+        {/* Pending content (pricing/plans, testimonials, client logos). Hidden
+            from the public until real data exists — gated behind
+            SHOW_PENDING_SECTIONS so no placeholder is shown in production. */}
+        {SHOW_PENDING_SECTIONS && (
+          <section className="px-4 py-10" aria-label="Contenido pendiente de definir">
+            <div className="mx-auto max-w-3xl space-y-3">
+              <div className="rounded-xl border-2 border-dashed border-[#f59e0b] bg-[#fffbeb] p-5 text-sm text-[#92400e]">
+                <strong>TODO:</strong> Planes y precios — no están definidos todavía. No se muestran
+                cifras inventadas.
+              </div>
+              <div className="rounded-xl border-2 border-dashed border-[#f59e0b] bg-[#fffbeb] p-5 text-sm text-[#92400e]">
+                <strong>TODO:</strong> Testimonios y logos de clientes — pendientes de aportar. No se
+                inventan.
+              </div>
             </div>
-            <div className="rounded-xl border-2 border-dashed border-[#f59e0b] bg-[#fffbeb] p-5 text-sm text-[#92400e]">
-              <strong>TODO:</strong> Testimonios y logos de clientes — pendientes de aportar. No se
-              inventan.
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* Cierre */}
         <section className="bg-[#0c1e3c] px-4 py-16 text-center text-white sm:py-20">
