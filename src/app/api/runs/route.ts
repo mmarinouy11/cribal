@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db/prisma'
 import { runPipeline, runPipelineAllCompanies } from '@/lib/pipeline'
+import { isMontevideoWeekday } from '@/lib/schedule'
 
 // The pipeline calls external services (RSS, Claude, Resend), so keep this on
 // the Node.js runtime rather than the Edge runtime.
@@ -24,6 +25,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   const cronToken = process.env.CRON_SECRET
 
   if (cronToken && authHeader === `Bearer ${cronToken}`) {
+    // The automatic criba only runs on weekdays (Mon–Fri Montevideo). The
+    // Monday run still covers the weekend because each company's search window
+    // grows from its lastSuccessfulRunAt. This guard makes weekday-only hold in
+    // code even if the external cron is ever set to fire on a weekend.
+    if (!isMontevideoWeekday()) {
+      return NextResponse.json({ message: 'Fin de semana: la criba automática no corre' })
+    }
     void runPipelineAllCompanies('cron').catch((error) => {
       const message = error instanceof Error ? error.message : String(error)
       console.error(`[CRIBAL][CRON] Error en pipeline: ${message}`)

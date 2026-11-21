@@ -1,7 +1,10 @@
 import { Resend } from 'resend'
-import type { CompanyConfig, NicheCategory, Opportunity } from '@prisma/client'
+import { OpportunityStatus, type CompanyConfig, type NicheCategory, type Opportunity } from '@prisma/client'
 import type { NormalizedTender } from '../pipeline/normalizer'
+import { prisma } from '../db/prisma'
 import { getUrgentOpportunities, getBusinessDaysUntilClosing } from '../pipeline/urgency'
+import { NICHE_CATEGORY_LABELS } from '../niches/labels'
+import { startOfToday, addDays } from '../dates'
 import { formatDateTime, formatRelativeTime } from '../format'
 import {
   APP_URL,
@@ -13,6 +16,44 @@ import {
   scoreBadgeColors,
   shortDate,
 } from './branding'
+
+// Statuses that mean the user is working/preparing an opportunity (interest or
+// preparation) — the ones a closing reminder is relevant for. NUEVA and the
+// discarded/archived states are excluded on purpose.
+const WORKING_STATUSES: OpportunityStatus[] = [
+  OpportunityStatus.REVISANDO,
+  OpportunityStatus.RELEVANTE,
+  OpportunityStatus.CONTACTADA,
+  OpportunityStatus.OFERTADA,
+]
+
+interface DueReminder {
+  opp: Opportunity
+  stage: '3d' | '1d'
+}
+
+/**
+ * Working opportunities closing within 3 business days that still need a
+ * reminder: one at the 3-day mark and one at the 1-day mark, never repeated.
+ */
+async function getDueClosingReminders(companyId: string): Promise<DueReminder[]> {
+  const opps = await prisma.opportunity.findMany({
+    where: {
+      companyId,
+      source: { not: 'onboarding' },
+      status: { in: WORKING_STATUSES },
+      closingDate: { gte: startOfToday(), lte: addDays(new Date(), 6) },
+    },
+  })
+  const due: DueReminder[] = []
+  for (const opp of opps) {
+    if (!opp.closingDate) continue
+    const businessDays = getBusinessDaysUntilClosing(opp.closingDate)
+    if (businessDays <= 1 && !opp.closeReminder1dSentAt) due.push({ opp, stage: '1d' })
+    else if (businessDays <= 3 && !opp.closeReminder3dSentAt) due.push({ opp, stage: '3d' })
+  }
+  return due
+}
 
 /** Minimal niche shape the digest needs — high-signal niches detected in a run. */
 export interface NicheDigestItem {
@@ -189,9 +230,7 @@ function renderOtherSection(others: NormalizedTender[]): string {
 }
 
 function nicheCategoryLabel(category: NicheCategory): string {
-  if (category === 'NUCLEO') return 'Núcleo'
-  if (category === 'ADYACENTE') return 'Adyacente'
-  return 'Fuera'
+  return NICHE_CATEGORY_LABELS[category]
 }
 
 function renderNicheItem(niche: NicheDigestItem): string {
@@ -268,18 +307,23 @@ export async function sendDigest(
 ): Promise<void> {
   const hasRelevant = savedOpportunities.length > 0
 
-  // If the company only wants emails when there are relevant opportunities, skip
-  // the digest on days without any relevant matches.
-  if (company.emailOnlyWhenRelevant && !hasRelevant) {
+  // "Algo que importa" = a new relevant opportunity, or a closing reminder due
+  // for an opportunity the user is working on.
+  const dueReminders = await getDueClosingReminders(company.id)
+  const hasReminderDue = dueReminders.length > 0
+
+  // In "only when relevant" mode, send only when there is a relevant match or a
+  // closing reminder is due.
+  if (company.emailOnlyWhenRelevant && !hasRelevant && !hasReminderDue) {
     console.log(
-      `[CRIBAL][EMAIL] Omitiendo email para ${company.companyName} — sin relevantes y modo solo-relevantes activo (run ${runId})`
+      `[CRIBAL][EMAIL] Omitiendo email para ${company.companyName} — sin relevantes ni recordatorios y modo solo-relevantes activo (run ${runId})`
     )
     return
   }
 
-  if (savedOpportunities.length === 0 && allNewTenders.length === 0) {
+  if (savedOpportunities.length === 0 && allNewTenders.length === 0 && !hasReminderDue) {
     console.log(
-      `[CRIBAL][EMAIL] Sin oportunidades ni llamados nuevos — no se envía email (run ${runId})`
+      `[CRIBAL][EMAIL] Sin oportunidades, llamados nuevos ni recordatorios — no se envía email (run ${runId})`
     )
     return
   }
@@ -323,7 +367,15 @@ export async function sendDigest(
     html,
   })
 
+  // Mark the closing reminders included in this email so they are not repeated.
+  for (const { opp, stage } of dueReminders) {
+    await prisma.opportunity.update({
+      where: { id: opp.id },
+      data: stage === '1d' ? { closeReminder1dSentAt: now } : { closeReminder3dSentAt: now },
+    })
+  }
+
   console.log(
-    `[CRIBAL][EMAIL] Email enviado a ${company.notificationEmails.join(', ')} — ${relevantCount} relevantes, ${otherTenders.length} otros nuevos`
+    `[CRIBAL][EMAIL] Email enviado a ${company.notificationEmails.join(', ')} — ${relevantCount} relevantes, ${otherTenders.length} otros nuevos, ${dueReminders.length} recordatorios`
   )
 }

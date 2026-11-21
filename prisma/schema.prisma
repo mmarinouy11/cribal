@@ -38,7 +38,7 @@ model CompanyConfig {
   rssFeeds              String[]
   customAiPrompt        String?
   notificationEmails    String[]
-  emailOnlyWhenRelevant Boolean            @default(false)
+  emailOnlyWhenRelevant Boolean            @default(true)
   catalogArticleIds     Int[]              @default([]) // catalog articles chosen in onboarding (not yet used by the pipeline)
   isActive              Boolean            @default(true)
   registrationStatus    RegistrationStatus @default(PENDING)
@@ -235,6 +235,8 @@ model Opportunity {
   tenderItems        Json? // Array of { itemNumber, name, articleCode, quantity, unit }
   isElectronic       Boolean? // "Apertura electrónica"
   urgencyAlertSentAt DateTime? // Last time an urgency alert email was sent
+  closeReminder3dSentAt DateTime? // Daily-digest closing reminder sent at the 3-business-day mark
+  closeReminder1dSentAt DateTime? // Daily-digest closing reminder sent at the 1-business-day mark
 
   // Market intelligence fields (populated on demand)
   marketAnalyzedAt     DateTime?

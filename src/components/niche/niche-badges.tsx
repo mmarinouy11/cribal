@@ -1,5 +1,6 @@
 import { NicheCategory, NicheStatus, FailureType } from '@prisma/client'
 import { cn } from '@/lib/cn'
+import { NICHE_CATEGORY_LABELS } from '@/lib/niches/labels'
 
 /**
  * Whether a niche's label was built from its object description. Mirrors
@@ -22,14 +23,14 @@ interface CategoryMeta {
 }
 
 export const NICHE_CATEGORY_META: Record<NicheCategory, CategoryMeta> = {
-  NUCLEO: { label: 'Núcleo', className: 'bg-[#cffafe] text-[#0e7490]' },
-  ADYACENTE: { label: 'Adyacente', className: 'bg-[#ede9fe] text-[#5b21b6]' },
-  FUERA: { label: 'Fuera', className: 'bg-[#f1f5f9] text-[#94a3b8]' },
+  NUCLEO: { label: NICHE_CATEGORY_LABELS.NUCLEO, className: 'bg-[#cffafe] text-[#0e7490]' },
+  ADYACENTE: { label: NICHE_CATEGORY_LABELS.ADYACENTE, className: 'bg-[#ede9fe] text-[#5b21b6]' },
+  FUERA: { label: NICHE_CATEGORY_LABELS.FUERA, className: 'bg-[#f1f5f9] text-[#94a3b8]' },
 }
 
 export const NICHE_CATEGORY_OPTIONS: { value: NicheCategory; label: string }[] = [
-  { value: NicheCategory.NUCLEO, label: 'Núcleo' },
-  { value: NicheCategory.ADYACENTE, label: 'Adyacente' },
+  { value: NicheCategory.NUCLEO, label: NICHE_CATEGORY_LABELS.NUCLEO },
+  { value: NicheCategory.ADYACENTE, label: NICHE_CATEGORY_LABELS.ADYACENTE },
 ]
 
 export function NicheCategoryBadge({ category }: { category: NicheCategory }) {
