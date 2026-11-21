@@ -494,3 +494,78 @@ enum NicheStatus {
   DESCARTADO
   ARCHIVADO
 }
+
+// ---------------------------------------------------------------------------
+// Shared daily ingestion (company-independent). These tables let the pipeline
+// download each ARCE feed and tender once per day and reuse the result across
+// every company, instead of hitting ARCE once per company. They hold NO
+// companyId — the data is identical for everyone.
+// ---------------------------------------------------------------------------
+
+// One row per RSS feed URL. Stores the conditional-request validators (ETag /
+// Last-Modified) and the parsed items of the last successful download, so a
+// re-run can send If-None-Match / If-Modified-Since and reuse the body on 304,
+// and so several companies sharing a feed in the same run read it from here.
+model FeedCache {
+  url          String   @id
+  etag         String? // ETag of the last 200 response
+  lastModified String? // Last-Modified header of the last 200 response
+  lastFetchedAt DateTime? // when the feed was last fetched (200 or 304)
+  lastStatus   Int? // HTTP status of the last attempt (200, 304, 0 on network error)
+  itemsJson    Json? // parsed RssItem[] of the last successful download
+  itemCount    Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  @@map("feed_cache")
+}
+
+// One row per ARCE tender (by its ARCE id), holding everything that does not
+// depend on the company: the RSS-level fields and the detail scraped from the
+// tender pages (object description, items, article codes, pliego references).
+// The per-company run reads from here instead of re-fetching the detail.
+model GlobalTender {
+  tenderId          String    @id // ARCE unique id
+  familia           String? // family/category the tender was found under
+  title             String?
+  rssContent        String? // raw RSS content/description
+  publicationDate   DateTime?
+  objectDescription String? // buy-object extracted from the detail page
+  tenderItems       Json? // TenderItem[] from the /mostrar-llamado/1 call view
+  articleCodes      String[]  @default([])
+  pliegoRefs        Json? // references to pliego documents, when extracted
+  detailHtml        String? // raw detail-page HTML, cached so each tender page is fetched once
+  detailFetchedAt   DateTime? // when the parsed detail (items/object/codes) was last scraped
+  htmlFetchedAt     DateTime? // when the raw detail HTML was last fetched
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("global_tenders")
+}
+
+// Read-through cache for company-independent AI work (e.g. normalizing or
+// summarizing a tender object / pliego). Keyed by a hash of the input content so
+// the same text is only sent to the model once, regardless of company.
+model AiAnalysisCache {
+  contentHash String   @id // sha256 of (kind + normalized input)
+  kind        String // what was computed, e.g. "object" | "pliego"
+  resultJson  Json
+  createdAt   DateTime @default(now())
+
+  @@map("ai_analysis_cache")
+}
+
+// Global run state for the shared ingestion step (one per pipeline pass). Lets a
+// run be marked FAILED/PARTIAL when ARCE is down, independently of each company.
+model GlobalIngestionRun {
+  id              String    @id @default(uuid())
+  status          RunStatus @default(RUNNING)
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  feedsTotal      Int       @default(0)
+  feedsFailed     Int       @default(0)
+  feedsFromCache  Int       @default(0) // served from cache / 304 (not re-downloaded)
+  tendersEnriched Int       @default(0)
+  errors          Json      @default("[]")
+
+  @@map("global_ingestion_runs")
+}
