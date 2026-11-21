@@ -20,7 +20,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/', label: 'Tablero', icon: 'ti-layout-dashboard' },
+  { href: '/tablero', label: 'Tablero', icon: 'ti-layout-dashboard' },
   { href: '/oportunidades', label: 'Oportunidades', icon: 'ti-target' },
   { href: '/nichos', label: 'Nichos', icon: 'ti-bulb' },
   { href: '/ejecuciones', label: 'Ejecuciones', icon: 'ti-player-play' },
@@ -31,7 +31,6 @@ const NAV_ITEMS: NavItem[] = [
 const ADMIN_NAV_ITEM: NavItem = { href: '/admin', label: 'Admin', icon: 'ti-shield' }
 
 function isActive(pathname: string, href: string): boolean {
-  if (href === '/') return pathname === '/'
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 

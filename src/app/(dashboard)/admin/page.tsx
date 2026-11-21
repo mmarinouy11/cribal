@@ -25,7 +25,7 @@ const REGISTRATION_META: Record<RegistrationStatus, { label: string; className: 
 export default async function AdminPage() {
   const session = await auth()
   if (!session) redirect('/login')
-  if (session.user.role !== 'ADMIN') redirect('/')
+  if (session.user.role !== 'ADMIN') redirect('/tablero')
 
   const startOfToday = new Date()
   startOfToday.setHours(0, 0, 0, 0)

@@ -320,7 +320,7 @@ export async function updateCompanyConfig(data: CompanyConfigInput): Promise<voi
   })
 
   revalidatePath('/configuracion')
-  revalidatePath('/')
+  revalidatePath('/tablero')
 }
 
 export interface CompanyProfileInput {
@@ -381,7 +381,7 @@ export async function updateCompanyProfile(data: CompanyProfileInput): Promise<v
 
   revalidatePath('/perfil')
   revalidatePath('/configuracion')
-  revalidatePath('/')
+  revalidatePath('/tablero')
 }
 
 export interface FeedTestResult {

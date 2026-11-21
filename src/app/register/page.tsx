@@ -259,7 +259,7 @@ export default function RegisterPage() {
       return
     }
 
-    router.push('/?welcome=1')
+    router.push('/tablero?welcome=1')
     router.refresh()
   }
 
