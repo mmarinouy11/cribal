@@ -33,6 +33,12 @@ export interface CompanyProfileInput {
   capabilities: string[]
 }
 
+// A tender the user marked, used to calibrate the sample classification prompt.
+export interface UserExample {
+  object: string
+  relevant: boolean
+}
+
 // Common Spanish stopwords plus procurement boilerplate that carries no signal.
 const STOPWORDS = new Set([
   'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'a',

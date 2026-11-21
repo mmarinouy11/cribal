@@ -11,11 +11,13 @@ import Anthropic from '@anthropic-ai/sdk'
 import { normalizeFeedToFamily } from '@/lib/arce/catalog'
 import { normalizeText } from '@/lib/text/normalize'
 import { logAiError } from '@/lib/ai/errors'
+import { getTenderObjectText } from '@/lib/tenders/object-text'
 import type {
   ValidationItem,
   ClassifiedValidationItem,
   AiClassification,
   CompanyProfileInput,
+  UserExample,
 } from '@/lib/register/validation'
 
 const MODEL = 'claude-sonnet-4-6'
@@ -102,7 +104,7 @@ async function fetchSampleItems(familyFeeds: string[]): Promise<SampleItem[]> {
       items.push({
         id,
         title,
-        object: stripHtml(bestContent).slice(0, 200),
+        object: stripHtml(bestContent).slice(0, 500),
         organismo: organismoFromTitle(title),
         url: link,
         feedSource: familyFeeds[i],
@@ -118,8 +120,11 @@ async function fetchSampleItems(familyFeeds: string[]): Promise<SampleItem[]> {
 }
 
 const AI_SYSTEM_PROMPT = `Clasificá estas licitaciones como relevantes o no para la empresa indicada.
+Tené en cuenta las palabras clave y exclusiones de la empresa, y seguí el criterio del usuario para licitaciones similares a los ejemplos que marcó.
 Para cada una, retorná SOLO un array JSON:
 [{ "id": string, "relevant": boolean, "reason": string (una oración en español) }]`
+
+const MAX_USER_EXAMPLES = 10
 
 function parseClassifications(text: string, validIds: Set<string>): AiClassification[] {
   const parsed: unknown = JSON.parse(stripMarkdownFences(text))
@@ -142,21 +147,32 @@ function parseClassifications(text: string, validIds: Set<string>): AiClassifica
 /** Classify sample items in a single Claude call. Empty array on failure. */
 async function classifyItems(
   items: ValidationItem[],
-  companyProfile: CompanyProfileInput
+  companyProfile: CompanyProfileInput,
+  config: { keywords: string[]; exclusions: string[]; userExamples: UserExample[] }
 ): Promise<AiClassification[]> {
   if (items.length === 0) return []
 
   const itemsBlock = items
     .map(
       (item) =>
-        `- id: ${item.id}\n  Título: ${item.title}\n  Objeto: ${item.object || 'No disponible'}\n  Organismo: ${item.organismo || 'No especificado'}`
+        `- id: ${item.id}\n  Objeto: ${getTenderObjectText(item) || item.object || 'No disponible'}\n  Organismo: ${item.organismo || 'No especificado'}`
     )
     .join('\n')
+
+  // Up to 10 of the user's own marks, balanced, so the AI follows their criterion.
+  const examplesBlock = config.userExamples.slice(0, MAX_USER_EXAMPLES).length
+    ? `\nEjemplos marcados por el usuario (seguí este criterio para licitaciones similares):\n${config.userExamples
+        .slice(0, MAX_USER_EXAMPLES)
+        .map((e) => `- ${e.relevant ? 'RELEVANTE' : 'NO RELEVANTE'}: ${e.object}`)
+        .join('\n')}\n`
+    : ''
 
   const userMessage = `Empresa: ${companyProfile.name}
 Descripción: ${companyProfile.description || 'No disponible'}
 Capacidades: ${companyProfile.capabilities.join(', ') || 'No disponible'}
-
+Palabras clave: ${config.keywords.join(', ') || 'ninguna'}
+Exclusiones: ${config.exclusions.join(', ') || 'ninguna'}
+${examplesBlock}
 Licitaciones a clasificar:
 ${itemsBlock}`
 
@@ -199,7 +215,8 @@ ${itemsBlock}`
 export async function fetchAndClassifyValidationSample(
   feeds: string[],
   relevantKeywords: string[],
-  companyProfile: CompanyProfileInput
+  companyProfile: CompanyProfileInput,
+  extra: { exclusions?: string[]; userExamples?: UserExample[] } = {}
 ): Promise<{ items: ClassifiedValidationItem[]; usedFallback: boolean }> {
   // Diagnostic: confirm exactly which keywords reached the server action.
   console.log(
@@ -248,8 +265,13 @@ export async function fetchAndClassifyValidationSample(
     `[CRIBAL][VALIDACION] Matches: ${filtered.length} | Fallback: ${usedFallback} | Muestra: ${sample.length} items`
   )
 
-  // 7. Classify with Claude (unchanged).
-  const classifications = await classifyItems(sample, companyProfile)
+  // 7. Classify with Claude, passing keywords/exclusions and the user's own
+  // marked examples so it follows the user's criterion.
+  const classifications = await classifyItems(sample, companyProfile, {
+    keywords: relevantKeywords,
+    exclusions: extra.exclusions ?? [],
+    userExamples: extra.userExamples ?? [],
+  })
   const byId = new Map(classifications.map((c) => [c.id, c]))
 
   const items: ClassifiedValidationItem[] = sample.map((item) => {

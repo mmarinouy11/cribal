@@ -2,17 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchAndClassifyValidationSample } from '@/lib/actions/register'
+import { suggestAdjustmentsFromMarks } from '@/lib/actions/onboarding-suggestions'
 import {
   categoriesToDrop,
   type ValidationItem,
   type ClassifiedValidationItem,
   type Mark,
+  type UserExample,
 } from '@/lib/register/validation'
-import {
-  suggestAdjustments,
-  type AdjustmentSuggestions,
-  type AdjustmentSuggestion,
-} from '@/lib/suggestions/suggest-adjustments'
+import type { AdjustmentSuggestions, AdjustmentSuggestion } from '@/lib/suggestions/types'
+import { getTenderDisplayText, getTenderObjectText } from '@/lib/tenders/object-text'
 import { feedToLabel, feedToDetailedLabel } from '@/lib/arce/catalog'
 import { CategorySelector } from '@/components/register/category-selector'
 import { CatalogSearch, type AppliedCatalogConfig } from '@/components/register/catalog-search'
@@ -56,20 +55,33 @@ export function ValidationStep({
   const [sample, setSample] = useState<ValidationItem[]>([])
   const [loading, setLoading] = useState(true)
   const [usedFallback, setUsedFallback] = useState(false)
-  const [marks, setMarks] = useState<Record<string, Mark>>({})
+  // AI pre-classification vs the user's explicit marks. The user's marks win and
+  // persist across reloads (they are the criterion the AI must follow).
+  const [aiMarks, setAiMarks] = useState<Record<string, Mark>>({})
+  const [userMarks, setUserMarks] = useState<Record<string, Mark>>({})
   const [aiReasons, setAiReasons] = useState<Record<string, string>>({})
   const [showCatalog, setShowCatalog] = useState(false)
   const [showSelector, setShowSelector] = useState(false)
   const [suggestions, setSuggestions] = useState<AdjustmentSuggestions | null>(null)
-  // value → checked. Includes default checked, exclusions default unchecked.
+  const [analyzing, setAnalyzing] = useState(false)
+  const [suggestError, setSuggestError] = useState(false)
+  const [applied, setApplied] = useState(false)
+  // uiKey → checked. "add" default checked, "exc" default unchecked.
   const [checked, setChecked] = useState<Record<string, boolean>>({})
   const [keptCategories, setKeptCategories] = useState<Set<string>>(new Set())
+  // Bump to reload the sample on demand (never automatically on keyword/feed edits).
+  const [reloadToken, setReloadToken] = useState(0)
 
-  const feedsKey = useMemo(() => feeds.join('||'), [feeds])
-  const keywordsKey = useMemo(() => relevantKeywords.join('||'), [relevantKeywords])
   const requestRef = useRef(0)
+  // Latest values read inside the reload effect without making it a dependency.
+  const liveRef = useRef({ feeds, relevantKeywords, appliedExclusions, marks: {} as Record<string, Mark> })
 
-  // (Re)load + classify the sample whenever the active categories change.
+  // Effective mark per id: the user's explicit mark overrides the AI's.
+  const marks = useMemo<Record<string, Mark>>(() => ({ ...aiMarks, ...userMarks }), [aiMarks, userMarks])
+  liveRef.current = { feeds, relevantKeywords, appliedExclusions, marks }
+
+  // (Re)load + classify the sample: once on mount (after generation) and only
+  // when the user explicitly asks ("Probar de nuevo con estos ajustes").
   useEffect(() => {
     const id = ++requestRef.current
     // Wait until config generation has finished: fetching mid-generation would
@@ -78,9 +90,11 @@ export function ValidationStep({
       setLoading(true)
       return
     }
-    if (feeds.length === 0) {
+    const { feeds: curFeeds, relevantKeywords: curKeywords, appliedExclusions: curExclusions, marks: curMarks } =
+      liveRef.current
+    if (curFeeds.length === 0) {
       setSample([])
-      setMarks({})
+      setAiMarks({})
       setAiReasons({})
       setUsedFallback(false)
       setLoading(false)
@@ -89,34 +103,37 @@ export function ValidationStep({
     setLoading(true)
     const timer = setTimeout(async () => {
       try {
-        console.log(
-          '[CRIBAL][VALIDACION][client] Enviando keywords:',
-          relevantKeywords.length,
-          JSON.stringify(relevantKeywords.slice(0, 5))
+        // The user's current marks become examples so the AI follows the user.
+        const userExamples: UserExample[] = sample
+          .filter((i) => curMarks[i.id] === 'relevant' || curMarks[i.id] === 'not_relevant')
+          .map((i) => ({ object: getTenderObjectText(i) || i.object, relevant: curMarks[i.id] === 'relevant' }))
+          .slice(0, 10)
+
+        const result = await fetchAndClassifyValidationSample(
+          curFeeds,
+          curKeywords,
+          { name: companyName, description, capabilities },
+          { exclusions: curExclusions, userExamples }
         )
-        const result = await fetchAndClassifyValidationSample(feeds, relevantKeywords, {
-          name: companyName,
-          description,
-          capabilities,
-        })
         if (requestRef.current !== id) return
         setSample(result.items)
         setUsedFallback(result.usedFallback)
-        // Pre-mark according to Claude's classification; reset overrides on reload.
-        const nextMarks: Record<string, Mark> = {}
+        // Replace the AI marks; the user's own marks persist and still win.
+        const nextAi: Record<string, Mark> = {}
         const nextReasons: Record<string, string> = {}
         for (const item of result.items) {
-          nextMarks[item.id] = item.aiRelevant ? 'relevant' : 'not_relevant'
+          nextAi[item.id] = item.aiRelevant ? 'relevant' : 'not_relevant'
           if (item.aiReason) nextReasons[item.id] = item.aiReason
         }
-        setMarks(nextMarks)
+        setAiMarks(nextAi)
         setAiReasons(nextReasons)
         setSuggestions(null)
+        setSuggestError(false)
         setChecked({})
       } catch {
         if (requestRef.current === id) {
           setSample([])
-          setMarks({})
+          setAiMarks({})
           setAiReasons({})
           setUsedFallback(false)
         }
@@ -126,7 +143,7 @@ export function ValidationStep({
     }, 300)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [feedsKey, keywordsKey, generating])
+  }, [generating, reloadToken])
 
   const relevantItems = sample.filter((i) => marks[i.id] === 'relevant')
   const notRelevantItems = sample.filter((i) => marks[i.id] === 'not_relevant')
@@ -171,50 +188,76 @@ export function ValidationStep({
   }
 
   function setMark(id: string, mark: Exclude<Mark, null>) {
-    setMarks((prev) => ({ ...prev, [id]: prev[id] === mark ? null : mark }))
+    // Toggle the user's explicit mark (which overrides the AI and persists).
+    setUserMarks((prev) => ({ ...prev, [id]: prev[id] === mark ? null : mark }))
   }
 
-  function analyzeMarks() {
-    const result = suggestAdjustments(
-      relevantItems,
-      notRelevantItems,
-      relevantKeywords,
-      appliedExclusions
-    )
-    setSuggestions(result)
-    // Includes checked by default, exclusions unchecked.
-    const next: Record<string, boolean> = {}
-    for (const s of result.include) next[`inc:${s.value}`] = true
-    for (const s of result.exclude) next[`exc:${s.value}`] = false
-    setChecked(next)
+  // One AI call, then code-validated suggestions (never a sample reclassification).
+  async function analyzeMarks() {
+    setAnalyzing(true)
+    setSuggestError(false)
+    setApplied(false)
+    setSuggestions(null)
+    try {
+      const marked = sample
+        .filter((i) => marks[i.id] === 'relevant' || marks[i.id] === 'not_relevant')
+        .map((i) => ({ id: i.id, title: i.title, object: i.object, relevant: marks[i.id] === 'relevant' }))
+      const result = await suggestAdjustmentsFromMarks(
+        { name: companyName, description, keywords: relevantKeywords, exclusions: appliedExclusions },
+        marked
+      )
+      if (result.status === 'error') {
+        setSuggestError(true)
+        return
+      }
+      if (result.status === 'empty') {
+        setSuggestions({ add: [], exclude: [] })
+        return
+      }
+      setSuggestions(result.suggestions)
+      const next: Record<string, boolean> = {}
+      for (const s of result.suggestions.add) next[`add:${s.phrase}`] = true
+      for (const s of result.suggestions.exclude) next[`exc:${s.phrase}`] = false
+      setChecked(next)
+    } finally {
+      setAnalyzing(false)
+    }
   }
 
   function toggleChecked(uiKey: string) {
     setChecked((prev) => ({ ...prev, [uiKey]: !prev[uiKey] }))
   }
 
+  // Apply only updates the wizard state; it never reloads/reclassifies the sample.
   function applySuggestions() {
     if (!suggestions) return
-    const includeToAdd = suggestions.include
-      .filter((s) => checked[`inc:${s.value}`])
-      .map((s) => s.value)
-    const excludeToAdd = suggestions.exclude
-      .filter((s) => checked[`exc:${s.value}`])
-      .map((s) => s.value)
+    const addToKeywords = suggestions.add
+      .filter((s) => checked[`add:${s.phrase}`])
+      .map((s) => s.phrase)
+    const addToExclusions = suggestions.exclude
+      .filter((s) => checked[`exc:${s.phrase}`])
+      .map((s) => s.phrase)
 
-    // Both keywords and exclusions change in one render → the sample reloads once.
-    if (includeToAdd.length > 0) {
-      onKeywordsChange(Array.from(new Set([...relevantKeywords, ...includeToAdd])))
+    if (addToKeywords.length > 0) {
+      onKeywordsChange(Array.from(new Set([...relevantKeywords, ...addToKeywords])))
     }
-    if (excludeToAdd.length > 0) {
-      onAppliedExclusionsChange(Array.from(new Set([...appliedExclusions, ...excludeToAdd])))
+    if (addToExclusions.length > 0) {
+      onAppliedExclusionsChange(Array.from(new Set([...appliedExclusions, ...addToExclusions])))
     }
     setSuggestions(null)
     setChecked({})
+    setApplied(true)
+  }
+
+  // The only path that re-runs the sample classification (costs AI/time).
+  function retryWithAdjustments() {
+    setApplied(false)
+    setSuggestions(null)
+    setReloadToken((t) => t + 1)
   }
 
   const hasSuggestions =
-    suggestions !== null && (suggestions.include.length > 0 || suggestions.exclude.length > 0)
+    suggestions !== null && (suggestions.add.length > 0 || suggestions.exclude.length > 0)
 
   const dropSuggestions = canAnalyze
     ? categoriesToDrop(sample, marks).filter((s) => !keptCategories.has(s.feedSource))
@@ -376,7 +419,7 @@ export function ValidationStep({
                       </button>
                     </div>
                     <div className="mt-1.5 text-sm text-[#0c1e3c]">
-                      <span className="font-medium">{item.title || 'Sin título'}</span>
+                      <span className="font-medium">{getTenderDisplayText(item) || 'Sin objeto'}</span>
                       {item.organismo && (
                         <span className="text-[#6b7280]"> · {item.organismo}</span>
                       )}{' '}
@@ -427,26 +470,36 @@ export function ValidationStep({
             <button
               type="button"
               onClick={analyzeMarks}
-              className="rounded-lg border border-[#e0f2fe] bg-white px-3 py-1.5 text-sm font-medium text-[#0c1e3c] hover:bg-[#f0f9ff]"
+              disabled={analyzing}
+              className="inline-flex items-center gap-2 rounded-lg border border-[#e0f2fe] bg-white px-3 py-1.5 text-sm font-medium text-[#0c1e3c] hover:bg-[#f0f9ff] disabled:opacity-60"
             >
-              Analizar mis marcaciones
+              {analyzing && (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#0c1e3c] border-t-transparent" />
+              )}
+              {analyzing ? 'Analizando…' : 'Analizar mis marcaciones'}
             </button>
           )}
 
-          {suggestions !== null && !hasSuggestions && (
+          {suggestError && (
+            <p className="rounded-lg border border-[#fecaca] bg-[#fef2f2] px-3 py-2 text-xs text-[#b91c1c]">
+              No pudimos analizar tus marcaciones en este momento. Probá de nuevo más tarde.
+            </p>
+          )}
+
+          {!suggestError && suggestions !== null && !hasSuggestions && (
             <p className="text-xs text-[#6b7280]">No encontramos ajustes claros por ahora.</p>
           )}
 
           {hasSuggestions && (
             <div className="space-y-4">
-              {suggestions.include.length > 0 && (
+              {suggestions.add.length > 0 && (
                 <SuggestionGroup
                   title="Palabras clave a agregar"
-                  hint="Encontramos estos términos en lo que marcaste como relevante."
+                  hint="Describen lo que marcaste como relevante."
                   accent="include"
-                  items={suggestions.include}
+                  items={suggestions.add}
                   checked={checked}
-                  prefix="inc"
+                  prefix="add"
                   onToggle={toggleChecked}
                 />
               )}
@@ -468,6 +521,20 @@ export function ValidationStep({
               >
                 Aplicar sugerencias
               </button>
+            </div>
+          )}
+
+          {applied && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-[#065f46]">✓ Ajustes aplicados</p>
+              <button
+                type="button"
+                onClick={retryWithAdjustments}
+                className="rounded-lg border border-[#e0f2fe] bg-white px-3 py-1.5 text-sm font-medium text-[#0c1e3c] hover:bg-[#f0f9ff]"
+              >
+                Probar de nuevo con estos ajustes
+              </button>
+              <p className="text-[11px] text-[#94a3b8]">Usa IA y puede tardar unos segundos.</p>
             </div>
           )}
 
@@ -523,7 +590,7 @@ interface SuggestionGroupProps {
   onToggle: (uiKey: string) => void
 }
 
-/** A reviewable group of suggestions (include or exclude) with "por qué" titles. */
+/** A reviewable group of suggestions (include or exclude) with reason + evidence. */
 function SuggestionGroup({
   title,
   hint,
@@ -545,7 +612,7 @@ function SuggestionGroup({
       </div>
       <div className="space-y-2">
         {items.map((item) => {
-          const uiKey = `${prefix}:${item.value}`
+          const uiKey = `${prefix}:${item.phrase}`
           return (
             <label key={uiKey} className="flex items-start gap-2">
               <input
@@ -555,10 +622,13 @@ function SuggestionGroup({
                 className={`mt-0.5 h-4 w-4 rounded border-[#cbd5e1] ${accentClass}`}
               />
               <span className="min-w-0">
-                <span className="text-sm font-medium text-[#0c1e3c]">{item.value}</span>
-                {item.titles.length > 0 && (
+                <span className="text-sm font-medium text-[#0c1e3c]">{item.phrase}</span>
+                {item.reason && (
+                  <span className="block text-xs text-[#6b7280]">{item.reason}</span>
+                )}
+                {item.evidence.length > 0 && (
                   <span className="block text-xs text-[#94a3b8]">
-                    Ej.: {item.titles.map((t) => `“${t}”`).join(' · ')}
+                    Ej.: {item.evidence.map((t) => `“${t.slice(0, 80)}”`).join(' · ')}
                   </span>
                 )}
               </span>

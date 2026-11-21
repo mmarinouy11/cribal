@@ -8,6 +8,7 @@ import { filterExclusions } from './pipeline/exclusionFilter'
 import { applyStageGate, type StageGateResult } from './pipeline/stageGate'
 import { filterDuplicates } from './pipeline/deduplicator'
 import { classifyTenders } from './pipeline/classifier'
+import { getOnboardingExamples } from './actions/onboarding-opportunities'
 import { ingestFailedTenders } from './pipeline/failed-tenders'
 import { sendDigest, type NicheDigestItem } from './email/digest'
 import { sendAdminFeedsDownAlert, sendAdminAiBillingAlert } from './email/admin-alert'
@@ -272,9 +273,11 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
 
     // 9. Classify with Claude. A fatal AI failure (no credit / throttled / down)
     // must fail the run and NOT advance lastSuccessfulRunAt, like feeds down.
+    // The company's onboarding marks calibrate the classifier.
+    const onboardingExamples = await getOnboardingExamples(company.id)
     let classifications
     try {
-      classifications = await classifyTenders(newTenders, company)
+      classifications = await classifyTenders(newTenders, company, onboardingExamples)
     } catch (error) {
       if (error instanceof AiServiceError) {
         const kind = aiFailureKind(error)

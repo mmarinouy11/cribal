@@ -24,11 +24,14 @@ const INSTITUTIONAL = [
   'tecnologia', 'republica', 'oriental', 'organismo',
 ]
 
-// Procurement procedure vocabulary.
+// Procurement procedure vocabulary + RSS page metadata labels.
 const PROCEDURE = [
   'compra', 'compras', 'directa', 'licitacion', 'abreviada', 'concurso',
   'precios', 'adquisicion', 'contratacion', 'suministro', 'suministros',
   'provision', 'llamado', 'adjudicacion', 'adjudicada', 'pliego',
+  'excepcion', 'pregon', 'convenio', 'marco',
+  // RSS page metadata ("Publicado:", "Última modificación:")
+  'publicado', 'publicada', 'modificacion', 'ultima', 'fecha', 'hora',
 ]
 
 // Words generic ONLY when they stand alone (fine inside a phrase, e.g.
@@ -75,6 +78,17 @@ export function isGenericWord(word: string): boolean {
 export function isHardGenericWord(word: string): boolean {
   const w = normalizeText(word)
   return STOPWORD_SET.has(w) || GENERIC_ALWAYS.has(w) || /^\d+$/.test(w)
+}
+
+/**
+ * True for a place / institution / procedure / metadata word or a pure number —
+ * terms that may never appear ANYWHERE in a phrase. Unlike isHardGenericWord it
+ * ignores stopwords (fine as interior connectors) and the "generic only when
+ * alone" words (fine inside a phrase).
+ */
+export function isAlwaysGenericWord(word: string): boolean {
+  const w = normalizeText(word)
+  return GENERIC_ALWAYS.has(w) || /^\d+$/.test(w)
 }
 
 /** True when a whole candidate (word or phrase) is too generic to suggest. */
