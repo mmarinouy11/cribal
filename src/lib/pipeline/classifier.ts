@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { CompanyConfig } from '@prisma/client'
 import type { NormalizedTender } from './normalizer'
+import type { UserExample } from '@/lib/register/validation'
 import { AiServiceError, classifyAiError, isFatalAiError, logAiError } from '@/lib/ai/errors'
 
 export interface ClassificationResult {
@@ -49,7 +50,11 @@ function getClient(): Anthropic {
   return cachedClient
 }
 
-function buildUserMessage(batch: NormalizedTender[], company: CompanyConfig): string {
+function buildUserMessage(
+  batch: NormalizedTender[],
+  company: CompanyConfig,
+  examples: UserExample[]
+): string {
   const tendersForPrompt = batch.map((tender) => ({
     opportunityId: tender.opportunityId,
     title: tender.title,
@@ -58,10 +63,18 @@ function buildUserMessage(batch: NormalizedTender[], company: CompanyConfig): st
     tenderType: tender.tenderType,
   }))
 
+  // The company's own onboarding marks — follow this criterion for similar tenders.
+  const examplesBlock = examples.length
+    ? `\nExamples from the company's own criterion (follow it for similar tenders):\n${examples
+        .map((e) => `- ${e.relevant ? 'RELEVANT' : 'NOT RELEVANT'}: ${e.object}`)
+        .join('\n')}\n`
+    : ''
+
   return `Company: ${company.companyName}
 Capabilities: ${company.capabilities.join(', ')}
+Relevant keywords: ${company.relevantKeywords.join(', ') || 'none'}
 Excluded products: ${company.excludedProducts.join(', ')}
-
+${examplesBlock}
 Tenders to evaluate:
 ${JSON.stringify(tendersForPrompt, null, 2)}`
 }
@@ -85,10 +98,11 @@ function parseResponse(text: string): ClassificationResult[] {
 
 async function classifyBatch(
   batch: NormalizedTender[],
-  company: CompanyConfig
+  company: CompanyConfig,
+  examples: UserExample[]
 ): Promise<ClassificationResult[]> {
   const client = getClient()
-  const userMessage = buildUserMessage(batch, company)
+  const userMessage = buildUserMessage(batch, company, examples)
   const system = company.customAiPrompt
     ? `${SYSTEM_PROMPT}\n\n${company.customAiPrompt}`
     : SYSTEM_PROMPT
@@ -142,7 +156,8 @@ async function classifyBatch(
  */
 export async function classifyTenders(
   tenders: NormalizedTender[],
-  company: CompanyConfig
+  company: CompanyConfig,
+  examples: UserExample[] = []
 ): Promise<ClassificationResult[]> {
   if (tenders.length === 0) return []
 
@@ -159,7 +174,7 @@ export async function classifyTenders(
 
   const results: ClassificationResult[] = []
   for (let i = 0; i < batches.length; i++) {
-    const batchResults = await classifyBatch(batches[i], company)
+    const batchResults = await classifyBatch(batches[i], company, examples)
     const relevantCount = batchResults.filter((r) => r.isRelevant).length
     console.log(
       `[CRIBAL][IA] Batch ${i + 1}/${batches.length} completado — ${relevantCount} relevantes`

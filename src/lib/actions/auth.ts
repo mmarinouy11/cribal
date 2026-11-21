@@ -141,12 +141,13 @@ export async function registerCompany(
     return { success: false, error: 'No se pudo crear la cuenta. Intentá nuevamente.' }
   }
 
-  // 6. Seed relevant + open tenders from onboarding as opportunities so the
-  // dashboard is not empty on first login. Failure must not fail registration.
+  // 6. Persist the user's onboarding marks (relevant and not-relevant) as
+  // source="onboarding" calibration data for the daily pipeline classifier.
+  // They never show on the dashboard. Failure must not fail registration.
   try {
-    const relevantOpen = (data.validationItems ?? []).filter((i) => i.aiRelevant && i.isOpen)
-    if (relevantOpen.length > 0 && newCompanyId) {
-      await saveOnboardingOpportunities(relevantOpen, newCompanyId)
+    const marks = data.validationItems ?? []
+    if (marks.length > 0 && newCompanyId) {
+      await saveOnboardingOpportunities(marks, newCompanyId)
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
