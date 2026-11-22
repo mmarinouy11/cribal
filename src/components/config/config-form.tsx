@@ -6,6 +6,12 @@ import { Toast, type ToastType } from '@/components/ui/toast'
 import { TagInput } from '@/components/ui/tag-input'
 import { SaveStatusIndicator, type SaveStatus } from '@/components/config/save-status'
 import { nextRunDate } from '@/lib/cadence'
+import {
+  CADENCE_OPTIONS,
+  cadenceToLookbackDays,
+  lookbackDaysToCadence,
+  type CadenceValue,
+} from '@/lib/cadence-options'
 import { formatDateDMY } from '@/lib/format'
 import {
   updateCompanyConfig,
@@ -32,8 +38,6 @@ export interface RegenContext {
   description: string
   capabilities: string[]
 }
-
-const LOOKBACK_OPTIONS = [1, 2, 3, 4, 5, 6, 7]
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -377,7 +381,7 @@ export function ConfigForm({
           </Field>
           <Field
             label="Notificaciones por email"
-            helper="Con la segunda opción solo recibirás emails los días en que el sistema encuentre oportunidades relevantes para tu empresa."
+            helper="Con la segunda opción solo te escribimos cuando hay algo que importa: una oportunidad nueva relevante, o un recordatorio de cierre (3 y 1 día antes) de una oportunidad que estás trabajando. Si no hay nada de eso, ese día no recibís email."
           >
             <div className="space-y-2">
               <label className="flex cursor-pointer items-start gap-2 text-sm text-[#0c1e3c]">
@@ -414,17 +418,19 @@ export function ConfigForm({
             />
           </Field>
           <Field
-            label="Cadencia de ejecución"
-            helper="La criba se ejecutará cada N días. Valores más altos reducen el consumo de créditos pero detectan oportunidades con menos frecuencia."
+            label="¿Cada cuánto querés que revisemos ARCE?"
+            helper="Con menos frecuencia reducís el consumo de créditos, pero detectás oportunidades más espaciado. La corrida del lunes siempre cubre el fin de semana."
           >
             <select
-              value={form.lookbackDays}
-              onChange={(e) => commitField('lookbackDays', Number(e.target.value))}
+              value={lookbackDaysToCadence(form.lookbackDays)}
+              onChange={(e) =>
+                commitField('lookbackDays', cadenceToLookbackDays(e.target.value as CadenceValue))
+              }
               className={inputClass}
             >
-              {LOOKBACK_OPTIONS.map((days) => (
-                <option key={days} value={days}>
-                  {days} día{days === 1 ? '' : 's'}
+              {CADENCE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>

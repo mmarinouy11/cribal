@@ -62,7 +62,7 @@ export async function updateOpportunityStatus(id: string, status: string): Promi
 
   revalidatePath('/oportunidades')
   revalidatePath(`/oportunidades/${id}`)
-  revalidatePath('/')
+  revalidatePath('/tablero')
 }
 
 // Contextual state transitions from the detail page action buttons.
@@ -88,7 +88,7 @@ export async function advanceOpportunity(id: string, target: AdvanceTarget): Pro
   await prisma.opportunity.update({ where: { id }, data })
   revalidatePath('/oportunidades')
   revalidatePath(`/oportunidades/${id}`)
-  revalidatePath('/')
+  revalidatePath('/tablero')
 }
 
 /** Dismiss (Desestimar) an opportunity with a reason and optional comment. */
@@ -110,7 +110,7 @@ export async function dismissOpportunity(
   })
   revalidatePath('/oportunidades')
   revalidatePath(`/oportunidades/${id}`)
-  revalidatePath('/')
+  revalidatePath('/tablero')
 }
 
 export interface OpportunityReviewInput {

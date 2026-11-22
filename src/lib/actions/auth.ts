@@ -26,6 +26,10 @@ export interface RegisterCompanyInput {
   capabilities: string[]
   minimumScore: number
   notificationEmail: string
+  // How often the automatic criba runs (maps to lookbackDays). Defaults to daily.
+  lookbackDays?: number
+  // Only email when there is something relevant. New companies default to true.
+  emailOnlyWhenRelevant?: boolean
   // Step 3 — AI-generated (or manually adjusted) configuration
   relevantKeywords: string[]
   excludedKeywords: string[]
@@ -67,6 +71,10 @@ export async function registerCompany(
   }
 
   const minimumScore = Math.min(10, Math.max(5, Math.round(data.minimumScore) || 7))
+  // Cadence maps to lookbackDays; clamp to the supported range (default daily).
+  const lookbackDays = Math.min(7, Math.max(1, Math.round(data.lookbackDays ?? 1) || 1))
+  // New companies default to "only when relevant" unless the form says otherwise.
+  const emailOnlyWhenRelevant = data.emailOnlyWhenRelevant ?? true
   const capabilities = data.capabilities.map((c) => c.trim()).filter(Boolean)
   const passwordHash = await bcrypt.hash(data.password, 12)
 
@@ -98,7 +106,8 @@ export async function registerCompany(
           excludedKeywords: cleanList(data.excludedKeywords),
           excludedProducts: cleanList(data.excludedProducts),
           minimumScore,
-          lookbackDays: 1,
+          lookbackDays,
+          emailOnlyWhenRelevant,
           rssFeeds: rssFeeds.length > 0 ? rssFeeds : [FALLBACK_RSS_FEED],
           notificationEmails: [notificationEmail],
           catalogArticleIds,

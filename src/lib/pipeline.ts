@@ -1,6 +1,8 @@
 import type { Prisma, Opportunity } from '@prisma/client'
 import { prisma } from './db/prisma'
-import { fetchRssFeeds, type RssItem } from './pipeline/fetcher'
+import { type RssItem } from './pipeline/fetcher'
+import { fetchCompanyFeeds, runGlobalIngestion } from './pipeline/global-ingestion'
+import { FAILURE_FEED_URLS } from './pipeline/failed-tenders'
 import { normalize, type NormalizedTender } from './pipeline/normalizer'
 import { filterByDate } from './pipeline/dateFilter'
 import { filterByKeywords } from './pipeline/keywordFilter'
@@ -103,8 +105,10 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
   const errors: PipelineError[] = []
 
   try {
-    // 3. Fetch RSS feeds (with retries + per-feed status).
-    const { items, errors: fetchErrors, feedStatuses } = await fetchRssFeeds(company.rssFeeds)
+    // 3. Fetch RSS feeds. Served from the shared cache when the global ingestion
+    // pass already downloaded them this run (so several companies share one
+    // download per feed); otherwise fetched directly with the normal retries.
+    const { items, errors: fetchErrors, feedStatuses } = await fetchCompanyFeeds(company.rssFeeds)
     for (const fetchError of fetchErrors) {
       errors.push({ stage: 'fetch', message: `${fetchError.feed}: ${fetchError.error}` })
     }
@@ -532,28 +536,45 @@ export async function runPipelineAllCompanies(
   console.log(`${prefix} Iniciando pipeline para ${companies.length} empresas activas...`)
 
   const now = new Date()
-  let ran = 0
   let skipped = 0
   const results: PipelineRunResult[] = []
 
-  for (const company of companies) {
-    // Never spend API credits on an ownerless company (e.g. an orphan left by a
-    // failed registration).
+  // Decide which companies run this pass, so the shared ingestion only warms the
+  // feeds they actually need.
+  const dueCompanies = companies.filter((company) => {
     if (company._count.users === 0) {
       console.log(`[CRIBAL] Omitiendo ${company.companyName} — sin usuarios asociados`)
       skipped++
-      continue
+      return false
     }
-
     if (!isDueToRun(company.lastSuccessfulRunAt, company.lookbackDays, now)) {
       const days = daysUntilNextRun(company.lastSuccessfulRunAt, company.lookbackDays, now)
-      console.log(
-        `[CRIBAL] Omitiendo ${company.companyName} — próxima ejecución en ${days} día(s)`
-      )
+      console.log(`[CRIBAL] Omitiendo ${company.companyName} — próxima ejecución en ${days} día(s)`)
       skipped++
-      continue
+      return false
     }
+    return true
+  })
 
+  // Shared ingestion pass: download every feed the due companies need (plus the
+  // global failure feeds) once, into the cache, before any company runs. On a
+  // total ARCE outage this reports FAILED but we still proceed — each company
+  // then processes whatever is already saved.
+  if (dueCompanies.length > 0) {
+    const feedUrls = [...dueCompanies.flatMap((c) => c.rssFeeds), ...FAILURE_FEED_URLS]
+    try {
+      const ingestion = await runGlobalIngestion(feedUrls, now)
+      console.log(
+        `${prefix} Ingesta global: ${ingestion.status} — ${ingestion.feedsTotal} feeds, ${ingestion.feedsFromCache} sin re-descargar`
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`${prefix} Error en ingesta global (se continúa): ${message}`)
+    }
+  }
+
+  let ran = 0
+  for (const company of dueCompanies) {
     try {
       results.push(await runPipeline(company.id))
     } catch (error) {

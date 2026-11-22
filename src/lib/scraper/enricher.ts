@@ -2,7 +2,8 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db/prisma'
 import { getBusinessDaysUntilClosing } from '@/lib/pipeline/urgency'
 import { sendUrgencyAlert } from '@/lib/email/urgency-alert'
-import { fetchArceHtml, delay } from './fetch-arce'
+import { delay } from './fetch-arce'
+import { getOrFetchDetailHtml } from '@/lib/pipeline/global-ingestion'
 import {
   isAdjudication,
   parseTenderDetail,
@@ -70,7 +71,9 @@ export async function enrichOpportunity(opportunityId: string): Promise<void> {
   // Be respectful to ARCE servers.
   await delay(500)
 
-  const html = await fetchArceHtml(detailUrl(opportunity.externalId))
+  // The detail page is the same for every company, so it is fetched once per
+  // tender per day through the shared cache (parsing below stays per-company).
+  const html = await getOrFetchDetailHtml(opportunity.externalId, detailUrl(opportunity.externalId))
   if (!html) {
     console.warn(`[CRIBAL][ENRICH] Sin HTML para ${opportunity.title}; se omite enriquecimiento`)
     return

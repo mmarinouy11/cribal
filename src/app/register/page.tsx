@@ -9,6 +9,12 @@ import { LogoMark } from '@/components/ui/logo'
 import { registerCompany } from '@/lib/actions/auth'
 import { generateCompanyConfig, type GeneratedCompanyConfig } from '@/lib/actions/config'
 import { lookupCompany } from '@/lib/actions/company-lookup'
+import {
+  CADENCE_OPTIONS,
+  DEFAULT_CADENCE,
+  cadenceToLookbackDays,
+  type CadenceValue,
+} from '@/lib/cadence-options'
 import { ValidationStep } from '@/components/register/validation-step'
 import type { ClassifiedValidationItem } from '@/lib/register/validation'
 import { feedToLabel } from '@/lib/arce/catalog'
@@ -36,7 +42,7 @@ function capabilitiesToList(text: string): string[] {
 }
 
 const inputClass =
-  'w-full rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c] outline-none focus:border-[#06b6d4] focus:ring-1 focus:ring-[#06b6d4]'
+  'w-full rounded-lg border border-[#e0f2fe] px-3 py-2 text-sm text-[#0c1e3c] outline-none focus:border-[#06b6d4] focus:ring-1 focus:ring-[#06b6d4] disabled:cursor-not-allowed disabled:bg-[#f8fafc] disabled:opacity-60'
 const labelClass = 'mb-1 block text-sm font-medium text-[#0c1e3c]'
 
 export default function RegisterPage() {
@@ -63,6 +69,9 @@ export default function RegisterPage() {
   const [generating, setGenerating] = useState(false)
   const [configError, setConfigError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  // Step 5 (summary) — cadence and email preferences, mapped at submit time.
+  const [cadence, setCadence] = useState<CadenceValue>(DEFAULT_CADENCE)
+  const [emailOnlyWhenRelevant, setEmailOnlyWhenRelevant] = useState(true)
   // Step 4 (validation)
   const [appliedExclusions, setAppliedExclusions] = useState<string[]>([])
   const [validationItems, setValidationItems] = useState<ClassifiedValidationItem[]>([])
@@ -91,9 +100,23 @@ export default function RegisterPage() {
       return
     }
     setLooking(true)
-    setLookupMessage(null)
+    setLookupMessage('Buscando información de tu empresa… esperá unos segundos')
+
+    // Safety cap: if the lookup takes longer than ~30s, re-enable the fields so
+    // the user can fill them in by hand. A late result is then ignored so it
+    // does not overwrite what they typed in the meantime.
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      setLooking(false)
+      setLookupMessage(
+        'La búsqueda está demorando más de lo habitual. Completá los campos manualmente.'
+      )
+    }, 30_000)
+
     try {
       const result = await lookupCompany(companyName, country)
+      if (timedOut) return
       setDescription(result.description)
       setCapabilitiesText(result.capabilities)
       setLookupMessage(
@@ -104,11 +127,13 @@ export default function RegisterPage() {
             : 'No encontramos información pública. Completá los campos manualmente.'
       )
     } catch {
+      if (timedOut) return
       setLookupMessage(
         'No pudimos consultar la información en este momento. Completá los campos manualmente.'
       )
     } finally {
-      setLooking(false)
+      clearTimeout(timer)
+      if (!timedOut) setLooking(false)
     }
   }
 
@@ -205,6 +230,8 @@ export default function RegisterPage() {
       capabilities: capabilitiesToList(capabilitiesText),
       minimumScore: config?.minimumScore ?? 7,
       notificationEmail: notificationEmail || email,
+      lookbackDays: cadenceToLookbackDays(cadence),
+      emailOnlyWhenRelevant,
       relevantKeywords: config?.relevantKeywords ?? [],
       excludedKeywords: finalExcludedKeywords,
       excludedProducts: config?.excludedProducts ?? [],
@@ -232,7 +259,7 @@ export default function RegisterPage() {
       return
     }
 
-    router.push('/?welcome=1')
+    router.push('/tablero?welcome=1')
     router.refresh()
   }
 
@@ -321,6 +348,7 @@ export default function RegisterPage() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="¿A qué se dedica tu empresa?"
                 className={inputClass}
+                disabled={looking}
               />
             </div>
             <div>
@@ -331,6 +359,7 @@ export default function RegisterPage() {
                 onChange={(e) => setCapabilitiesText(e.target.value)}
                 placeholder="¿Qué productos, capacidades o servicios ofrece tu empresa?"
                 className={inputClass}
+                disabled={looking}
               />
             </div>
           </div>
@@ -592,9 +621,47 @@ export default function RegisterPage() {
                 <span className="font-semibold text-[#0c1e3c]">Puntaje mínimo:</span>{' '}
                 <span className="text-[#334155]">{config?.minimumScore ?? 7}</span>
               </div>
-              <div>
-                <span className="font-semibold text-[#0c1e3c]">Cadencia:</span>{' '}
-                <span className="text-[#334155]">Diaria</span>
+            </div>
+
+            <div className="space-y-2">
+              <label className={labelClass}>¿Cada cuánto querés que revisemos ARCE?</label>
+              <select
+                value={cadence}
+                onChange={(e) => setCadence(e.target.value as CadenceValue)}
+                className={inputClass}
+              >
+                {CADENCE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className={labelClass}>Notificaciones por email</label>
+              <div className="space-y-2">
+                <label className="flex cursor-pointer items-start gap-2 text-sm text-[#0c1e3c]">
+                  <input
+                    type="radio"
+                    name="emailOnlyWhenRelevant"
+                    checked={emailOnlyWhenRelevant}
+                    onChange={() => setEmailOnlyWhenRelevant(true)}
+                    className="mt-0.5 h-4 w-4"
+                  />
+                  Enviar solo cuando hay algo que importa (oportunidad relevante o recordatorio de
+                  cierre)
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 text-sm text-[#0c1e3c]">
+                  <input
+                    type="radio"
+                    name="emailOnlyWhenRelevant"
+                    checked={!emailOnlyWhenRelevant}
+                    onChange={() => setEmailOnlyWhenRelevant(false)}
+                    className="mt-0.5 h-4 w-4"
+                  />
+                  Enviar resumen todos los días hábiles
+                </label>
               </div>
             </div>
           </div>

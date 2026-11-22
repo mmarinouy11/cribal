@@ -25,6 +25,20 @@ export function nextScheduledRunAt(now: Date = new Date()): Date {
   return candidate
 }
 
+/**
+ * Whether an instant falls on a weekday (Mon–Fri) in Montevideo time. Used to
+ * guard the automatic cron path so the pipeline never runs on the weekend, even
+ * if the external (Railway) cron is ever misconfigured to fire Sat/Sun. The
+ * manual "run now" button does not go through this guard.
+ */
+export function isMontevideoWeekday(now: Date = new Date()): boolean {
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: TIME_ZONE,
+    weekday: 'short',
+  }).format(now)
+  return weekday !== 'Sat' && weekday !== 'Sun'
+}
+
 /** Montevideo calendar day ("YYYY-MM-DD") for a given instant. */
 function montevideoDayKey(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', {

@@ -4,6 +4,8 @@ import { prisma } from '../db/prisma'
 import { normalize, type NormalizedTender } from './normalizer'
 import { classifyFailures, type FailureToClassify } from './niche-classifier'
 import { recomputeNiches } from './niches'
+import { getCachedFeedItems, getOrFetchTenderDetail } from './global-ingestion'
+import type { RssItem } from './fetcher'
 import { fetchArceHtml, delay } from '../scraper/fetch-arce'
 import { parseTenderDetail, extractBuyObject, type TenderItem } from '../scraper/arce-parser'
 
@@ -24,6 +26,10 @@ const FAILURE_FEEDS: { url: string; type: FailureType }[] = [
     type: 'OFERTAS_RECHAZADAS',
   },
 ]
+
+// The failure feeds are identical for every company, so the shared ingestion
+// pass downloads them once; the orchestrator adds these to its feed set.
+export const FAILURE_FEED_URLS: string[] = FAILURE_FEEDS.map((feed) => feed.url)
 
 interface TaggedFailure {
   tender: NormalizedTender
@@ -47,33 +53,46 @@ function callViewUrl(tenderId: string): string {
 }
 
 export interface FailureEnrichment {
-  articleCodes: string[]
-  tenderItems: TenderItem[]
   objectDescription: string | null
+  tenderItems: TenderItem[]
+  articleCodes: string[]
 }
 
-/** Fetch one failure feed and tag every item with its failureType. */
+/** Tag normalized RSS items (from either source) with their failureType. */
+function tagFailures(items: RssItem[], url: string, type: FailureType): TaggedFailure[] {
+  const tagged: TaggedFailure[] = []
+  for (const raw of items) {
+    const tender = normalize({ ...raw, sourceFeed: raw.sourceFeed || url })
+    if (!tender.tenderId) continue
+    tagged.push({ tender, failureType: type, failureId: `arce-fail|${tender.tenderId}` })
+  }
+  return tagged
+}
+
+/**
+ * Items of one failure feed, preferring the shared cache (populated once per run
+ * by the global ingestion pass) and falling back to a direct download when the
+ * cache has nothing — so a manual run with no prior ingestion still works.
+ */
 async function fetchFailureFeed(
   parser: Parser,
   url: string,
   type: FailureType
 ): Promise<TaggedFailure[]> {
+  const cached = await getCachedFeedItems(url)
+  if (cached) return tagFailures(cached, url, type)
+
   const parsed = await parser.parseURL(url)
-  const tagged: TaggedFailure[] = []
-  for (const raw of parsed.items ?? []) {
-    const tender = normalize({
-      title: raw.title ?? '',
-      link: raw.link ?? '',
-      guid: raw.guid ?? raw.link ?? '',
-      pubDate: raw.pubDate ?? '',
-      content: raw.content ?? raw['content:encoded'] ?? '',
-      contentSnippet: raw.contentSnippet ?? '',
-      sourceFeed: url,
-    })
-    if (!tender.tenderId) continue
-    tagged.push({ tender, failureType: type, failureId: `arce-fail|${tender.tenderId}` })
-  }
-  return tagged
+  const items: RssItem[] = (parsed.items ?? []).map((raw) => ({
+    title: raw.title ?? '',
+    link: raw.link ?? '',
+    guid: raw.guid ?? raw.link ?? '',
+    pubDate: raw.pubDate ?? '',
+    content: raw.content ?? raw['content:encoded'] ?? '',
+    contentSnippet: raw.contentSnippet ?? '',
+    sourceFeed: url,
+  }))
+  return tagFailures(items, url, type)
 }
 
 /**
@@ -83,7 +102,7 @@ async function fetchFailureFeed(
  * article codes (a desierta awards nothing, so the base page has no items block).
  * Fetches both, keeping a 500ms delay between requests.
  */
-export async function enrichFailure(tenderId: string): Promise<FailureEnrichment> {
+async function fetchFailureDetailFromArce(tenderId: string): Promise<FailureEnrichment> {
   const baseHtml = await fetchArceHtml(detailUrl(tenderId))
   const objectDescription = baseHtml ? extractBuyObject(baseHtml) : null
 
@@ -103,7 +122,16 @@ export async function enrichFailure(tenderId: string): Promise<FailureEnrichment
     .map((item) => item.articleCode)
     .filter((code): code is string => Boolean(code))
 
-  return { articleCodes, tenderItems, objectDescription }
+  return { objectDescription, tenderItems, articleCodes }
+}
+
+/**
+ * Enrich a failure from ARCE, shared across companies: the detail is kept in the
+ * global tender cache (by ARCE id), so two companies that see the same failed
+ * tender — and a re-run within the day — scrape it only once.
+ */
+export async function enrichFailure(tenderId: string): Promise<FailureEnrichment> {
+  return getOrFetchTenderDetail(tenderId, fetchFailureDetailFromArce)
 }
 
 /**
