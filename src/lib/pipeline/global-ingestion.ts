@@ -5,6 +5,7 @@ import { prisma } from '../db/prisma'
 import { arceFetch } from '../scraper/arce-http'
 import { fetchArceHtml } from '../scraper/fetch-arce'
 import { fetchRssFeeds, type FeedStatus, type FetchResult, type RssItem } from './fetcher'
+import { normalize } from './normalizer'
 import type { TenderItem } from '../scraper/arce-parser'
 
 // Shared, company-independent ingestion. The daily pipeline downloads each ARCE
@@ -269,7 +270,7 @@ export async function runGlobalIngestion(
 
   const acquired = await tryAcquireLock()
   if (!acquired) {
-    console.log('[CRIBAL][INGESTA] Otra ingesta global está corriendo — se omite')
+    console.log('[CRIBAL][INGEST] Otra ingesta global está corriendo — se omite')
     return { status: 'SKIPPED', feedsTotal: unique.length, feedsFailed: 0, feedsFromCache: 0 }
   }
 
@@ -279,24 +280,71 @@ export async function runGlobalIngestion(
   const errors: { feed: string; error: string }[] = []
   let failed = 0
   let fromCache = 0
+  let downloaded = 0
+
+  const familiaOf = (url: string): string | null => url.match(/\/familia\/(\d+)/)?.[1] ?? null
+
+  // RSS-level tender rows to share across companies (deduped by tenderId, first
+  // feed wins). Detail enrichment fills the rest of each row later.
+  const tenderRows = new Map<
+    string,
+    { tenderId: string; familia: string | null; title: string; rssContent: string; publicationDate: Date | null }
+  >()
 
   try {
     for (let i = 0; i < unique.length; i++) {
-      const outcome = await fetchFeedConditional(unique[i], now)
+      const url = unique[i]
+      const outcome = await fetchFeedConditional(url, now)
       if (!outcome.ok) {
         failed++
-        errors.push({ feed: unique[i], error: outcome.error ?? 'desconocido' })
+        errors.push({ feed: url, error: outcome.error ?? 'desconocido' })
       }
       if (outcome.fromCache) fromCache++
+      else if (outcome.ok) downloaded++
+
+      const familia = familiaOf(url)
+      for (const item of outcome.items) {
+        const tender = normalize(item)
+        if (!tender.tenderId || tenderRows.has(tender.tenderId)) continue
+        tenderRows.set(tender.tenderId, {
+          tenderId: tender.tenderId,
+          familia,
+          title: item.title,
+          rssContent: item.content,
+          publicationDate: tender.publicationDate,
+        })
+      }
+
       // Concurrency 1 + rate limit: wait between requests, not after the last.
       if (i < unique.length - 1) await delay(INTER_REQUEST_DELAY_MS)
     }
+
+    // Persist the new RSS-level tender rows into the shared store. createMany
+    // with skipDuplicates inserts only tenders not seen before and tells us how
+    // many were new; the rest were reused from earlier reads.
+    let newTenders = 0
+    if (tenderRows.size > 0) {
+      const created = await prisma.globalTender.createMany({
+        data: [...tenderRows.values()],
+        skipDuplicates: true,
+      })
+      newTenders = created.count
+    }
+    const reusedTenders = tenderRows.size - newTenders
+
+    const familyNumbers = [
+      ...new Set(unique.map(familiaOf).filter((f): f is string => f !== null)),
+    ]
+    console.log(
+      `[CRIBAL][INGEST] familias=[${familyNumbers.join(', ')}] feeds_descargados=${downloaded} feeds_cache=${fromCache} licitaciones_nuevas=${newTenders} reutilizadas=${reusedTenders}`
+    )
 
     const allFailed = unique.length > 0 && failed === unique.length
     const status = allFailed ? 'FAILED' : failed > 0 ? 'PARTIAL' : 'COMPLETED'
     await prisma.globalIngestionRun.update({
       where: { id: run.id },
       data: {
+        tendersEnriched: newTenders,
         status,
         finishedAt: new Date(),
         feedsFailed: failed,
@@ -304,9 +352,6 @@ export async function runGlobalIngestion(
         errors: errors as unknown as Prisma.InputJsonValue,
       },
     })
-    console.log(
-      `[CRIBAL][INGESTA] ${unique.length} feeds — ${failed} fallidos, ${fromCache} sin re-descargar (${status})`
-    )
     return { status, feedsTotal: unique.length, feedsFailed: failed, feedsFromCache: fromCache }
   } finally {
     await releaseLock()

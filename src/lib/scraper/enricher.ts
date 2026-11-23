@@ -52,6 +52,27 @@ function detailUrl(externalId: string): string {
   return `${ARCE_DETAIL_BASE}/${externalId}`
 }
 
+export interface TenderClosingInfo {
+  closingDate: Date | null
+  isClosed: boolean // adjudicated, or the closing date is already in the past
+}
+
+/**
+ * Fetch just the closing status of a tender from its ARCE detail page (via the
+ * shared HTML cache, so it is downloaded once). Used by the first full run to
+ * keep only tenders that are still open. An unreachable page is treated as
+ * "unknown" (closingDate null, not closed) so we never drop a tender just
+ * because ARCE did not answer.
+ */
+export async function fetchTenderClosing(tenderId: string): Promise<TenderClosingInfo> {
+  const html = await getOrFetchDetailHtml(tenderId, detailUrl(tenderId))
+  if (!html) return { closingDate: null, isClosed: false }
+  if (isAdjudication(html)) return { closingDate: null, isClosed: true }
+  const { closingDate } = parseTenderDetail(html)
+  const isClosed = closingDate !== null && closingDate.getTime() < Date.now()
+  return { closingDate, isClosed }
+}
+
 /**
  * Fetch the ARCE detail page for an opportunity and store the structured data.
  * Best-effort: on any fetch/parse problem it logs a warning and leaves
