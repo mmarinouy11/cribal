@@ -6,6 +6,7 @@ import { Toast, type ToastType } from '@/components/ui/toast'
 import { TagInput } from '@/components/ui/tag-input'
 import { SaveStatusIndicator, type SaveStatus } from '@/components/config/save-status'
 import { nextRunDate } from '@/lib/cadence'
+import { RUN_TIME_LABEL } from '@/lib/schedule'
 import {
   CADENCE_OPTIONS,
   cadenceToLookbackDays,
@@ -444,7 +445,7 @@ export function ConfigForm({
                   </p>
                 </>
               ) : (
-                <p>Nunca ejecutado — correrá en la próxima ejecución del cron (L-V 08:00)</p>
+                <p>Nunca ejecutado — correrá en la próxima ejecución del cron (L-V {RUN_TIME_LABEL})</p>
               )}
             </div>
           </Field>
