@@ -14,9 +14,18 @@ import { getOnboardingExamples } from './actions/onboarding-opportunities'
 import { ingestFailedTenders } from './pipeline/failed-tenders'
 import { sendDigest, type NicheDigestItem } from './email/digest'
 import { sendAdminFeedsDownAlert, sendAdminAiBillingAlert } from './email/admin-alert'
-import { enrichOpportunity } from './scraper/enricher'
+import { enrichOpportunity, fetchTenderClosing } from './scraper/enricher'
+import { delay } from './scraper/fetch-arce'
 import { isDueToRun, daysUntilNextRun, effectiveLookbackDays } from './cadence'
 import { AiServiceError, aiErrorReason } from './ai/errors'
+
+// The first full run for a company (no earlier COMPLETED pipeline run) looks back
+// over a wide window and caps how many tenders it classifies, prioritising the
+// ones closing soonest, so the account starts with the ACTIVE relevant tenders
+// instead of whatever happened to be published in the last 24h.
+const FIRST_RUN_WINDOW_DAYS = 45
+const FIRST_RUN_MAX_TO_CLASSIFY = 60
+const FIRST_RUN_ENRICH_DELAY_MS = 400
 
 interface PipelineError {
   stage: string
@@ -81,6 +90,53 @@ async function saveRawPublication(
     )
     return null
   }
+}
+
+/** True when the company has no earlier COMPLETED pipeline run (onboarding runs
+ * do not count), i.e. this is its first full run. */
+async function isFirstPipelineRun(companyId: string): Promise<boolean> {
+  const completed = await prisma.run.count({
+    where: { companyId, kind: 'pipeline', status: 'COMPLETED' },
+  })
+  return completed === 0
+}
+
+/**
+ * First-run selection: enrich each candidate to learn its closing date, keep
+ * only tenders still open (closing date in the future or unknown), order them by
+ * nearest closing and cap the number sent to classification. Returns the capped
+ * list and how many were dropped by the cap.
+ */
+async function selectFirstRunActiveTenders(
+  tenders: NormalizedTender[]
+): Promise<{ selected: NormalizedTender[]; closingByOpportunityId: Map<string, Date | null> }> {
+  const open: { tender: NormalizedTender; closingDate: Date | null }[] = []
+  for (const tender of tenders) {
+    const { closingDate, isClosed } = await fetchTenderClosing(tender.tenderId)
+    if (isClosed) continue // expired / already awarded — drop it
+    open.push({ tender, closingDate })
+    await delay(FIRST_RUN_ENRICH_DELAY_MS)
+  }
+
+  // Nearest closing first; unknown closing dates go last.
+  open.sort((a, b) => {
+    if (a.closingDate && b.closingDate) return a.closingDate.getTime() - b.closingDate.getTime()
+    if (a.closingDate) return -1
+    if (b.closingDate) return 1
+    return 0
+  })
+
+  const capped = open.slice(0, FIRST_RUN_MAX_TO_CLASSIFY)
+  if (open.length > FIRST_RUN_MAX_TO_CLASSIFY) {
+    console.log(
+      `[CRIBAL][PIPELINE] primera corrida: ${open.length} activas, ${open.length - FIRST_RUN_MAX_TO_CLASSIFY} quedaron fuera del tope de ${FIRST_RUN_MAX_TO_CLASSIFY}`
+    )
+  }
+
+  const closingByOpportunityId = new Map<string, Date | null>(
+    capped.map((o) => [o.tender.opportunityId, o.closingDate])
+  )
+  return { selected: capped.map((o) => o.tender), closingByOpportunityId }
 }
 
 /**
@@ -166,10 +222,17 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
       }
     }
 
-    // 5. Date filter. The window widens to cover the gap since the last
-    // successful run (capped at 30 days) so a multi-day ARCE outage is caught up
-    // once it recovers — not just the configured lookbackDays.
-    const windowDays = effectiveLookbackDays(company.lastSuccessfulRunAt, company.lookbackDays, new Date())
+    // 5. Date filter. The first full run uses a wide 45-day window so a new
+    // account starts with the ACTIVE relevant tenders (not just whatever was
+    // published in the last 24h). Later runs widen the window to cover the gap
+    // since the last successful run (capped at 30 days), not just lookbackDays.
+    const firstRun = await isFirstPipelineRun(company.id)
+    const windowDays = firstRun
+      ? FIRST_RUN_WINDOW_DAYS
+      : effectiveLookbackDays(company.lastSuccessfulRunAt, company.lookbackDays, new Date())
+    if (firstRun) {
+      console.log(`[CRIBAL][PIPELINE] primera corrida: ventana ${FIRST_RUN_WINDOW_DAYS} días`)
+    }
     const afterDate = filterByDate(normalizedTenders, windowDays)
     await prisma.run.update({
       where: { id: run.id },
@@ -252,9 +315,29 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
       )
     }
 
+    // 7d-bis. First run only: enrich to learn closing dates, keep only tenders
+    // still open, and cap how many go to classification (nearest closing first).
+    // Later runs classify every new tender, as before.
+    let tendersToClassify = newTenders
+    if (firstRun && newTenders.length > 0) {
+      const { selected, closingByOpportunityId } = await selectFirstRunActiveTenders(newTenders)
+      tendersToClassify = selected
+      // Record the ones left out (closed, or beyond the cap) so they are audited.
+      for (const tender of newTenders) {
+        if (closingByOpportunityId.has(tender.opportunityId)) continue
+        await saveRawPublication(
+          run.id,
+          tender,
+          rawByOpportunityId.get(tender.opportunityId),
+          'descartado_primera_corrida',
+          'Primera corrida: licitación cerrada o fuera del tope de clasificación por cierre más cercano'
+        )
+      }
+    }
+
     // 7e. Passed all filters — sent to AI.
     const rawPubIdByOpportunityId = new Map<string, string>()
-    for (const tender of newTenders) {
+    for (const tender of tendersToClassify) {
       const rawPubId = await saveRawPublication(
         run.id,
         tender,
@@ -271,7 +354,7 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
       data: {
         itemsAfterKeyword: keywordResult.passed.length,
         itemsAfterStageGate: stageGatePassed.length,
-        itemsSentToAi: newTenders.length,
+        itemsSentToAi: tendersToClassify.length,
       },
     })
 
@@ -281,7 +364,7 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
     const onboardingExamples = await getOnboardingExamples(company.id)
     let classifications
     try {
-      classifications = await classifyTenders(newTenders, company, onboardingExamples)
+      classifications = await classifyTenders(tendersToClassify, company, onboardingExamples)
     } catch (error) {
       if (error instanceof AiServiceError) {
         const kind = aiFailureKind(error)
@@ -309,7 +392,7 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
       }
       throw error
     }
-    const tenderByOpportunityId = new Map(newTenders.map((t) => [t.opportunityId, t]))
+    const tenderByOpportunityId = new Map(tendersToClassify.map((t) => [t.opportunityId, t]))
 
     // 10. Persist relevant opportunities; annotate the rest.
     const savedOpportunities: Opportunity[] = []
