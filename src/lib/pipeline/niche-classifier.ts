@@ -1,6 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk'
+import type Anthropic from '@anthropic-ai/sdk'
 import type { CompanyConfig, FailureType } from '@prisma/client'
 import type { TenderItem } from '../scraper/arce-parser'
+import { batchClassify, type IdentifiedResult } from '@/lib/ai/batch-classify'
 
 /** A failed tender ready to be evaluated for fit against the company. */
 export interface FailureToClassify {
@@ -21,7 +22,9 @@ export interface NicheClassification {
 }
 
 const MODEL = 'claude-sonnet-4-6'
-const BATCH_SIZE = 20
+const BATCH_SIZE = 8
+const MAX_PARALLEL = 3
+const MAX_REASON_CHARS = 120
 
 const SYSTEM_PROMPT = `Analizás licitaciones del Estado uruguayo que fracasaron — quedaron desiertas
 (nadie se presentó) o todas las ofertas fueron rechazadas. Son necesidades
@@ -47,22 +50,32 @@ No seas conservador con "adyacente". Si hay un camino plausible para que la
 empresa lo cubra, marcalo adyacente y explicá el camino. Reservá "fuera" para
 casos donde no hay puente razonable.
 
-Respondé SOLO un array JSON, sin markdown:
-[{
-  "failureId": string,
-  "category": "nucleo" | "adyacente" | "fuera",
-  "fitScore": number,
-  "reason": string,
-  "missingCapability": string
-}]`
+Usá la herramienta \`classify_failures\` para devolver una clasificación por
+licitación, copiando cada "failureId" exactamente. "reason" es una oración en
+español de máximo ${MAX_REASON_CHARS} caracteres. "missingCapability" va solo en
+los "adyacente" (vacío en "nucleo" y "fuera").`
 
-let cachedClient: Anthropic | null = null
-
-function getClient(): Anthropic {
-  if (!cachedClient) {
-    cachedClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  }
-  return cachedClient
+const CLASSIFY_TOOL_SCHEMA: Anthropic.Tool.InputSchema = {
+  type: 'object',
+  properties: {
+    classifications: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          failureId: { type: 'string' },
+          category: { type: 'string' },
+          fitScore: { type: 'integer' },
+          reason: { type: 'string' },
+          missingCapability: { type: 'string' },
+        },
+        required: ['failureId', 'category', 'fitScore', 'reason', 'missingCapability'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['classifications'],
+  additionalProperties: false,
 }
 
 function buildUserMessage(batch: FailureToClassify[], company: CompanyConfig): string {
@@ -83,67 +96,45 @@ Licitaciones fallidas a evaluar:
 ${JSON.stringify(failuresForPrompt, null, 2)}`
 }
 
-/** Remove markdown code fences that a model may wrap the JSON array in. */
-function stripMarkdownFences(text: string): string {
-  return text
-    .replace(/^\s*```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim()
+function toCategory(value: unknown): 'nucleo' | 'adyacente' | 'fuera' {
+  return value === 'nucleo' || value === 'adyacente' ? value : 'fuera'
 }
 
-function parseResponse(text: string): NicheClassification[] {
-  const cleaned = stripMarkdownFences(text)
-  const parsed: unknown = JSON.parse(cleaned)
-  if (!Array.isArray(parsed)) {
-    throw new Error('La respuesta de la IA no es un array JSON')
-  }
-  return parsed as NicheClassification[]
-}
+/** Extract per-failure results from the tool input, tolerating partial objects. */
+function extractClassifications(input: unknown): IdentifiedResult<NicheClassification>[] {
+  if (!input || typeof input !== 'object') return []
+  const arr = (input as { classifications?: unknown }).classifications
+  if (!Array.isArray(arr)) return []
 
-async function classifyBatch(
-  batch: FailureToClassify[],
-  company: CompanyConfig
-): Promise<NicheClassification[]> {
-  const client = getClient()
-  const userMessage = buildUserMessage(batch, company)
-
-  const callModel = async (): Promise<string> => {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMessage }],
+  const out: IdentifiedResult<NicheClassification>[] = []
+  for (const entry of arr) {
+    if (!entry || typeof entry !== 'object') continue
+    const o = entry as Record<string, unknown>
+    const failureId = typeof o.failureId === 'string' ? o.failureId : ''
+    if (!failureId) continue
+    const category = toCategory(o.category)
+    out.push({
+      id: failureId,
+      result: {
+        failureId,
+        category,
+        fitScore: typeof o.fitScore === 'number' ? Math.max(0, Math.min(10, Math.round(o.fitScore))) : 0,
+        reason: typeof o.reason === 'string' ? o.reason.slice(0, MAX_REASON_CHARS) : '',
+        missingCapability:
+          category === 'adyacente' && typeof o.missingCapability === 'string'
+            ? o.missingCapability
+            : '',
+      },
     })
-    return response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-      .map((block) => block.text)
-      .join('')
   }
-
-  try {
-    return parseResponse(await callModel())
-  } catch (firstError) {
-    // Retry once on parse/JSON failure.
-    const firstMessage = firstError instanceof Error ? firstError.message : String(firstError)
-    console.error(`[CRIBAL][NICHOS] Error parseando clasificación, reintentando: ${firstMessage}`)
-    try {
-      return parseResponse(await callModel())
-    } catch (secondError) {
-      const secondMessage =
-        secondError instanceof Error ? secondError.message : String(secondError)
-      console.error(
-        `[CRIBAL][NICHOS] Batch descartado tras segundo error de parseo: ${secondMessage}`
-      )
-      return []
-    }
-  }
+  return out
 }
 
 /**
  * Classify failed tenders by how far each is from the company's current
- * capabilities. Unlike the main classifier this applies no keyword/category
- * pre-filter — every failure is evaluated so new markets can surface. Batches of
- * 20; a failed batch is logged and skipped.
+ * capabilities, using small tool-based batches. No keyword pre-filter — every
+ * failure is evaluated so new markets can surface. Truncated/unparseable items
+ * are simply skipped (they are retried on the next run's ingestion).
  */
 export async function classifyFailures(
   failures: FailureToClassify[],
@@ -151,22 +142,22 @@ export async function classifyFailures(
 ): Promise<NicheClassification[]> {
   if (failures.length === 0) return []
 
-  const batches: FailureToClassify[][] = []
-  for (let i = 0; i < failures.length; i += BATCH_SIZE) {
-    batches.push(failures.slice(i, i + BATCH_SIZE))
-  }
+  const { byId } = await batchClassify<FailureToClassify, NicheClassification>({
+    context: 'clasificación de nichos',
+    model: MODEL,
+    system: SYSTEM_PROMPT,
+    items: failures,
+    idOf: (failure) => failure.failureId,
+    buildUserMessage: (batch) => buildUserMessage(batch, company),
+    tool: {
+      name: 'classify_failures',
+      description: 'Return the niche-fit classification for every failed tender in the batch.',
+      inputSchema: CLASSIFY_TOOL_SCHEMA,
+    },
+    extractResults: extractClassifications,
+    batchSize: BATCH_SIZE,
+    maxParallel: MAX_PARALLEL,
+  })
 
-  console.log(
-    `[CRIBAL][NICHOS] Clasificando ${failures.length} fallos en ${batches.length} batch${
-      batches.length === 1 ? '' : 'es'
-    }...`
-  )
-
-  const results: NicheClassification[] = []
-  for (let i = 0; i < batches.length; i++) {
-    const batchResults = await classifyBatch(batches[i], company)
-    results.push(...batchResults)
-  }
-
-  return results
+  return [...byId.values()]
 }

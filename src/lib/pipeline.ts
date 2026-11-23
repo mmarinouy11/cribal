@@ -9,7 +9,7 @@ import { filterByKeywords } from './pipeline/keywordFilter'
 import { filterExclusions } from './pipeline/exclusionFilter'
 import { applyStageGate, type StageGateResult } from './pipeline/stageGate'
 import { filterDuplicates } from './pipeline/deduplicator'
-import { classifyTenders } from './pipeline/classifier'
+import { classifyTenders, type ClassificationOutcome } from './pipeline/classifier'
 import { getOnboardingExamples } from './actions/onboarding-opportunities'
 import { ingestFailedTenders } from './pipeline/failed-tenders'
 import { sendDigest, type NicheDigestItem } from './email/digest'
@@ -380,9 +380,9 @@ export async function runPipeline(
     // must fail the run and NOT advance lastSuccessfulRunAt, like feeds down.
     // The company's onboarding marks calibrate the classifier.
     const onboardingExamples = await getOnboardingExamples(company.id)
-    let classifications
+    let classification: ClassificationOutcome
     try {
-      classifications = await classifyTenders(tendersToClassify, company, onboardingExamples)
+      classification = await classifyTenders(tendersToClassify, company, onboardingExamples)
     } catch (error) {
       if (error instanceof AiServiceError) {
         const kind = aiFailureKind(error)
@@ -409,6 +409,12 @@ export async function runPipeline(
         }
       }
       throw error
+    }
+    const { results: classifications, unclassifiedIds } = classification
+    if (unclassifiedIds.length > 0) {
+      console.warn(
+        `[CRIBAL][IA] ${unclassifiedIds.length} llamado(s) sin clasificar para ${company.companyName}`
+      )
     }
     const tenderByOpportunityId = new Map(tendersToClassify.map((t) => [t.opportunityId, t]))
 

@@ -1,8 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk'
+import type Anthropic from '@anthropic-ai/sdk'
 import type { CompanyConfig } from '@prisma/client'
 import type { NormalizedTender } from './normalizer'
 import type { UserExample } from '@/lib/register/validation'
-import { AiServiceError, classifyAiError, isFatalAiError, logAiError } from '@/lib/ai/errors'
+import { batchClassify, type IdentifiedResult } from '@/lib/ai/batch-classify'
 
 export interface ClassificationResult {
   opportunityId: string
@@ -13,22 +13,42 @@ export interface ClassificationResult {
   recommendedPlay: string
 }
 
+export interface ClassificationOutcome {
+  results: ClassificationResult[]
+  // Opportunity ids that could not be classified (truncated / unparseable), so
+  // the caller can mark the run PARTIAL and retry them next time.
+  unclassifiedIds: string[]
+}
+
 const MODEL = 'claude-sonnet-4-6'
-const BATCH_SIZE = 20
+const BATCH_SIZE = 8
+const MAX_PARALLEL = 3
+const MAX_SUMMARY_CHARS = 120
+
+const CATEGORIES = [
+  'desarrollo_software',
+  'soporte_tecnico',
+  'cloud',
+  'datos_analytics',
+  'ciberseguridad',
+  'qa_testing',
+  'servicios_gestionados',
+  'licencias',
+  'consultoria',
+  'no_relevante',
+]
 
 const SYSTEM_PROMPT = `You are a specialist assistant that evaluates Uruguayan public procurement publications to identify real business opportunities for technology and digital services companies.
 
 Your task is to classify each tender and determine if it represents a genuine opportunity for the configured company.
 
-Return ONLY a JSON array — no markdown, no extra text, no explanation outside the array.
+Use the \`classify_tenders\` tool to return exactly one classification per tender, copying each "opportunityId" exactly from the input.
 
-Each object in the array must have exactly these fields:
-- "opportunityId": string (copy exactly from input)
-- "isRelevant": boolean
-- "score": integer 0-10
-- "category": one of: "desarrollo_software" | "soporte_tecnico" | "cloud" | "datos_analytics" | "ciberseguridad" | "qa_testing" | "servicios_gestionados" | "licencias" | "consultoria" | "no_relevante"
-- "summary": string (one sentence in Spanish explaining the decision)
-- "recommendedPlay": string (concrete commercial angle in Spanish, empty string if not relevant)
+Field guidance:
+- "score": integer 0-10.
+- "category": one of ${CATEGORIES.join(' | ')}.
+- "summary": one short sentence in Spanish, at most ${MAX_SUMMARY_CHARS} characters.
+- "recommendedPlay": concrete commercial angle in Spanish, empty string if not relevant.
 
 Scoring scale:
 0–4: Not relevant
@@ -41,13 +61,35 @@ Technical support / service desk tenders ARE relevant when they involve outsourc
 
 Reject tenders that are ONLY for software licenses, renewals, or subscriptions for Veeam or Zimbra, unless the tender explicitly includes a broader managed service, implementation, migration, or technical support scope beyond the license purchase.`
 
-let cachedClient: Anthropic | null = null
-
-function getClient(): Anthropic {
-  if (!cachedClient) {
-    cachedClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  }
-  return cachedClient
+const CLASSIFY_TOOL_SCHEMA: Anthropic.Tool.InputSchema = {
+  type: 'object',
+  properties: {
+    classifications: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          opportunityId: { type: 'string' },
+          isRelevant: { type: 'boolean' },
+          score: { type: 'integer' },
+          category: { type: 'string' },
+          summary: { type: 'string' },
+          recommendedPlay: { type: 'string' },
+        },
+        required: [
+          'opportunityId',
+          'isRelevant',
+          'score',
+          'category',
+          'summary',
+          'recommendedPlay',
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['classifications'],
+  additionalProperties: false,
 }
 
 function buildUserMessage(
@@ -79,108 +121,64 @@ Tenders to evaluate:
 ${JSON.stringify(tendersForPrompt, null, 2)}`
 }
 
-/** Remove markdown code fences that a model may wrap the JSON array in. */
-function stripMarkdownFences(text: string): string {
-  return text
-    .replace(/^\s*```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim()
-}
+/** Extract per-tender results from the tool input, tolerating partial objects. */
+function extractClassifications(input: unknown): IdentifiedResult<ClassificationResult>[] {
+  if (!input || typeof input !== 'object') return []
+  const arr = (input as { classifications?: unknown }).classifications
+  if (!Array.isArray(arr)) return []
 
-function parseResponse(text: string): ClassificationResult[] {
-  const cleaned = stripMarkdownFences(text)
-  const parsed: unknown = JSON.parse(cleaned)
-  if (!Array.isArray(parsed)) {
-    throw new Error('La respuesta de la IA no es un array JSON')
+  const out: IdentifiedResult<ClassificationResult>[] = []
+  for (const entry of arr) {
+    if (!entry || typeof entry !== 'object') continue
+    const o = entry as Record<string, unknown>
+    const opportunityId = typeof o.opportunityId === 'string' ? o.opportunityId : ''
+    if (!opportunityId) continue
+    const summary = typeof o.summary === 'string' ? o.summary.slice(0, MAX_SUMMARY_CHARS) : ''
+    out.push({
+      id: opportunityId,
+      result: {
+        opportunityId,
+        isRelevant: o.isRelevant === true,
+        score: typeof o.score === 'number' ? Math.max(0, Math.min(10, Math.round(o.score))) : 0,
+        category: typeof o.category === 'string' ? o.category : 'no_relevante',
+        summary,
+        recommendedPlay: typeof o.recommendedPlay === 'string' ? o.recommendedPlay : '',
+      },
+    })
   }
-  return parsed as ClassificationResult[]
-}
-
-async function classifyBatch(
-  batch: NormalizedTender[],
-  company: CompanyConfig,
-  examples: UserExample[]
-): Promise<ClassificationResult[]> {
-  const client = getClient()
-  const userMessage = buildUserMessage(batch, company, examples)
-  const system = company.customAiPrompt
-    ? `${SYSTEM_PROMPT}\n\n${company.customAiPrompt}`
-    : SYSTEM_PROMPT
-
-  // Call the model. A fatal AI-infrastructure failure (billing / rate limit /
-  // outage) is rethrown as AiServiceError so the run fails instead of silently
-  // producing zero opportunities; other errors fall through to the parse retry.
-  const callModel = async (): Promise<string> => {
-    try {
-      const response = await client.messages.create({
-        model: MODEL,
-        max_tokens: 4096,
-        system,
-        messages: [{ role: 'user', content: userMessage }],
-      })
-      return response.content
-        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-        .map((block) => block.text)
-        .join('')
-    } catch (apiError) {
-      const classified = logAiError('clasificación del pipeline', apiError)
-      if (isFatalAiError(classified.type)) throw new AiServiceError(classified)
-      throw apiError
-    }
-  }
-
-  try {
-    return parseResponse(await callModel())
-  } catch (firstError) {
-    if (firstError instanceof AiServiceError) throw firstError
-    // Retry once on parse/JSON failure.
-    const firstMessage =
-      firstError instanceof Error ? firstError.message : String(firstError)
-    console.error(`[CRIBAL][IA] Error parseando respuesta, reintentando: ${firstMessage}`)
-    try {
-      return parseResponse(await callModel())
-    } catch (secondError) {
-      if (secondError instanceof AiServiceError) throw secondError
-      const classified = classifyAiError(secondError)
-      console.error(
-        `[CRIBAL][IA] Batch descartado tras segundo error (${classified.type}): ${classified.message}`
-      )
-      return []
-    }
-  }
+  return out
 }
 
 /**
- * Classify tenders with Claude in batches of 20. Batch failures are logged and
- * skipped so one bad batch does not stop the whole run.
+ * Classify tenders with Claude using small tool-based batches run in parallel.
+ * A fatal AI failure propagates (AiServiceError); truncated or unparseable items
+ * come back as `unclassifiedIds` so the run can be marked PARTIAL and retry them.
  */
 export async function classifyTenders(
   tenders: NormalizedTender[],
   company: CompanyConfig,
   examples: UserExample[] = []
-): Promise<ClassificationResult[]> {
-  if (tenders.length === 0) return []
+): Promise<ClassificationOutcome> {
+  if (tenders.length === 0) return { results: [], unclassifiedIds: [] }
 
-  const batches: NormalizedTender[][] = []
-  for (let i = 0; i < tenders.length; i += BATCH_SIZE) {
-    batches.push(tenders.slice(i, i + BATCH_SIZE))
-  }
+  const system = company.customAiPrompt ? `${SYSTEM_PROMPT}\n\n${company.customAiPrompt}` : SYSTEM_PROMPT
 
-  console.log(
-    `[CRIBAL][IA] Clasificando ${tenders.length} llamados en ${batches.length} batch${
-      batches.length === 1 ? '' : 'es'
-    }...`
-  )
+  const { byId, unclassifiedIds } = await batchClassify<NormalizedTender, ClassificationResult>({
+    context: 'clasificación del pipeline',
+    model: MODEL,
+    system,
+    items: tenders,
+    idOf: (tender) => tender.opportunityId,
+    buildUserMessage: (batch) => buildUserMessage(batch, company, examples),
+    tool: {
+      name: 'classify_tenders',
+      description: 'Return the relevance classification for every tender in the batch.',
+      inputSchema: CLASSIFY_TOOL_SCHEMA,
+    },
+    extractResults: extractClassifications,
+    batchSize: BATCH_SIZE,
+    maxParallel: MAX_PARALLEL,
+  })
 
-  const results: ClassificationResult[] = []
-  for (let i = 0; i < batches.length; i++) {
-    const batchResults = await classifyBatch(batches[i], company, examples)
-    const relevantCount = batchResults.filter((r) => r.isRelevant).length
-    console.log(
-      `[CRIBAL][IA] Batch ${i + 1}/${batches.length} completado — ${relevantCount} relevantes`
-    )
-    results.push(...batchResults)
-  }
-
-  return results
+  return { results: [...byId.values()], unclassifiedIds }
 }

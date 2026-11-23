@@ -7,10 +7,10 @@
 // and classifies it with Claude in a single call.
 
 import Parser from 'rss-parser'
-import Anthropic from '@anthropic-ai/sdk'
+import type Anthropic from '@anthropic-ai/sdk'
 import { normalizeFeedToFamily } from '@/lib/arce/catalog'
 import { normalizeText } from '@/lib/text/normalize'
-import { logAiError } from '@/lib/ai/errors'
+import { batchClassify, type IdentifiedResult } from '@/lib/ai/batch-classify'
 import { getTenderObjectText } from '@/lib/tenders/object-text'
 import { fetchFeedWithRetries, type RssItem } from '@/lib/pipeline/fetcher'
 import { getCachedFeedItems } from '@/lib/pipeline/global-ingestion'
@@ -90,13 +90,6 @@ function isOpenTender(content: string): boolean {
     !lower.includes('declarada desierta') &&
     !lower.includes('resolución')
   )
-}
-
-function stripMarkdownFences(text: string): string {
-  return text
-    .replace(/^\s*```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim()
 }
 
 interface FeedFetchResult {
@@ -215,45 +208,68 @@ function toSampleItem(raw: RawFeedItem): SampleItem {
   }
 }
 
+const MAX_REASON_CHARS = 120
+
 const AI_SYSTEM_PROMPT = `Clasificá estas licitaciones como relevantes o no para la empresa indicada.
 Tené en cuenta las palabras clave y exclusiones de la empresa, y seguí el criterio del usuario para licitaciones similares a los ejemplos que marcó.
-Para cada una, retorná SOLO un array JSON:
-[{ "id": string, "relevant": boolean, "reason": string (una oración en español) }]`
+Usá la herramienta \`classify_sample\` para devolver una clasificación por licitación, copiando cada "id" exactamente. "reason" es una oración en español de máximo ${MAX_REASON_CHARS} caracteres.`
 
 const MAX_USER_EXAMPLES = 10
 
-function parseClassifications(text: string, validIds: Set<string>): AiClassification[] {
-  const parsed: unknown = JSON.parse(stripMarkdownFences(text))
-  if (!Array.isArray(parsed)) throw new Error('La respuesta no es un array JSON')
-  const result: AiClassification[] = []
-  for (const entry of parsed) {
-    if (!entry || typeof entry !== 'object') continue
-    const obj = entry as Record<string, unknown>
-    const id = typeof obj.id === 'string' ? obj.id : ''
-    if (!id || !validIds.has(id)) continue
-    result.push({
-      id,
-      relevant: obj.relevant === true,
-      reason: typeof obj.reason === 'string' ? obj.reason : '',
-    })
-  }
-  return result
+const SAMPLE_TOOL_SCHEMA: Anthropic.Tool.InputSchema = {
+  type: 'object',
+  properties: {
+    classifications: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          relevant: { type: 'boolean' },
+          reason: { type: 'string' },
+        },
+        required: ['id', 'relevant', 'reason'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['classifications'],
+  additionalProperties: false,
 }
 
-/** Classify sample items in a single Claude call. Empty array on failure. */
+function extractSampleClassifications(input: unknown): IdentifiedResult<AiClassification>[] {
+  if (!input || typeof input !== 'object') return []
+  const arr = (input as { classifications?: unknown }).classifications
+  if (!Array.isArray(arr)) return []
+  const out: IdentifiedResult<AiClassification>[] = []
+  for (const entry of arr) {
+    if (!entry || typeof entry !== 'object') continue
+    const o = entry as Record<string, unknown>
+    const id = typeof o.id === 'string' ? o.id : ''
+    if (!id) continue
+    out.push({
+      id,
+      result: {
+        id,
+        relevant: o.relevant === true,
+        reason: typeof o.reason === 'string' ? o.reason.slice(0, MAX_REASON_CHARS) : '',
+      },
+    })
+  }
+  return out
+}
+
+/**
+ * Classify sample items with Claude using small tool-based batches run in
+ * parallel. Returns the classification per id plus the ids that could not be
+ * classified (truncated / unparseable), so the UI can show them as pending.
+ */
 async function classifyItems(
   items: ValidationItem[],
   companyProfile: CompanyProfileInput,
   config: { keywords: string[]; exclusions: string[]; userExamples: UserExample[] }
-): Promise<AiClassification[]> {
-  if (items.length === 0) return []
-
-  const itemsBlock = items
-    .map(
-      (item) =>
-        `- id: ${item.id}\n  Objeto: ${getTenderObjectText(item) || item.object || 'No disponible'}\n  Organismo: ${item.organismo || 'No especificado'}`
-    )
-    .join('\n')
+): Promise<{ byId: Map<string, AiClassification>; unclassifiedIds: string[] }> {
+  if (items.length === 0) return { byId: new Map(), unclassifiedIds: [] }
 
   // Up to 10 of the user's own marks, balanced, so the AI follows their criterion.
   const examplesBlock = config.userExamples.slice(0, MAX_USER_EXAMPLES).length
@@ -263,7 +279,14 @@ async function classifyItems(
         .join('\n')}\n`
     : ''
 
-  const userMessage = `Empresa: ${companyProfile.name}
+  const buildUserMessage = (batch: ValidationItem[]): string => {
+    const itemsBlock = batch
+      .map(
+        (item) =>
+          `- id: ${item.id}\n  Objeto: ${getTenderObjectText(item) || item.object || 'No disponible'}\n  Organismo: ${item.organismo || 'No especificado'}`
+      )
+      .join('\n')
+    return `Empresa: ${companyProfile.name}
 Descripción: ${companyProfile.description || 'No disponible'}
 Capacidades: ${companyProfile.capabilities.join(', ') || 'No disponible'}
 Palabras clave: ${config.keywords.join(', ') || 'ninguna'}
@@ -271,34 +294,22 @@ Exclusiones: ${config.exclusions.join(', ') || 'ninguna'}
 ${examplesBlock}
 Licitaciones a clasificar:
 ${itemsBlock}`
-
-  const validIds = new Set(items.map((i) => i.id))
-
-  const callModel = async (): Promise<string> => {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 2048,
-      system: AI_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMessage }],
-    })
-    return response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-      .map((block) => block.text)
-      .join('')
   }
 
-  try {
-    return parseClassifications(await callModel(), validIds)
-  } catch {
-    try {
-      // Retry once on malformed JSON.
-      return parseClassifications(await callModel(), validIds)
-    } catch (error) {
-      logAiError('muestra de validación del onboarding', error)
-      return []
-    }
-  }
+  return batchClassify<ValidationItem, AiClassification>({
+    context: 'muestra de validación del onboarding',
+    model: MODEL,
+    system: AI_SYSTEM_PROMPT,
+    items,
+    idOf: (item) => item.id,
+    buildUserMessage,
+    tool: {
+      name: 'classify_sample',
+      description: 'Return the relevance classification for every tender in the batch.',
+      inputSchema: SAMPLE_TOOL_SCHEMA,
+    },
+    extractResults: extractSampleClassifications,
+  })
 }
 
 /**
@@ -397,22 +408,37 @@ export async function fetchAndClassifyValidationSample(
   }
 
   // 5. Classify with Claude, passing keywords/exclusions and the user's own
-  // marked examples so it follows the user's criterion.
-  const classifications = await classifyItems(sample, companyProfile, {
-    keywords: relevantKeywords,
-    exclusions: extra.exclusions ?? [],
-    userExamples: extra.userExamples ?? [],
-  })
-  const byId = new Map(classifications.map((c) => [c.id, c]))
+  // marked examples so it follows the user's criterion. A fatal AI failure
+  // leaves every item unclassified rather than crashing the sample.
+  let byId = new Map<string, AiClassification>()
+  let unclassifiedIds: string[] = sample.map((i) => i.id)
+  try {
+    const outcome = await classifyItems(sample, companyProfile, {
+      keywords: relevantKeywords,
+      exclusions: extra.exclusions ?? [],
+      userExamples: extra.userExamples ?? [],
+    })
+    byId = outcome.byId
+    unclassifiedIds = outcome.unclassifiedIds
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[CRIBAL][SAMPLE] clasificación falló: ${message}`)
+  }
+  const unclassified = new Set(unclassifiedIds)
+  console.log(
+    `[CRIBAL][SAMPLE] clasificadas=${sample.length - unclassified.size} sin_clasificar=${unclassified.size}`
+  )
 
   const items: ClassifiedValidationItem[] = sample.map((item) => {
     const c = byId.get(item.id)
     // Drop the internal-only fields (contentSnippet/searchText) from the payload.
     const { contentSnippet: _cs, searchText: _st, ...base } = item
+    const isUnclassified = unclassified.has(item.id) || !c
     return {
       ...base,
       aiRelevant: c?.relevant ?? false,
       aiReason: c?.reason ?? '',
+      aiStatus: isUnclassified ? 'unclassified' : 'classified',
     }
   })
 
