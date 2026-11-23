@@ -12,6 +12,8 @@ import { normalizeFeedToFamily } from '@/lib/arce/catalog'
 import { normalizeText } from '@/lib/text/normalize'
 import { logAiError } from '@/lib/ai/errors'
 import { getTenderObjectText } from '@/lib/tenders/object-text'
+import { fetchFeedWithRetries, type RssItem } from '@/lib/pipeline/fetcher'
+import { getCachedFeedItems } from '@/lib/pipeline/global-ingestion'
 import type {
   ValidationItem,
   ClassifiedValidationItem,
@@ -23,6 +25,34 @@ import type {
 const MODEL = 'claude-sonnet-4-6'
 const SAMPLE_SIZE = 25 // classify/show up to this many matches
 const FALLBACK_SIZE = 15 // unfiltered items shown only when there are zero matches
+// Recency window for the sample's date stage. Generous on purpose: ARCE feeds
+// carry recent items anyway, so this mainly drops genuinely stale entries while
+// keeping recently-closed tenders (useful for validation). Undated items pass.
+const SAMPLE_DATE_WINDOW_DAYS = 90
+
+// Outcome of loading the sample, so the UI can tell "ARCE did not respond" from
+// "nothing matched" instead of always showing an empty list.
+export type ValidationSampleStatus = 'ok' | 'empty' | 'arce_error'
+
+export interface ValidationSampleResult {
+  status: ValidationSampleStatus
+  items: ClassifiedValidationItem[]
+  usedFallback: boolean // broad (unfiltered) sample shown because nothing matched the keywords
+  source: 'arce' | 'db'
+  fromCache: boolean // served from the global tables after an ARCE read failure
+  message?: string // Spanish message for the empty / error / fallback cases
+}
+
+// A raw feed item, from a live ARCE read or from the global cache.
+interface RawFeedItem {
+  title: string
+  link: string
+  guid: string
+  pubDate: string
+  contentSnippet: string
+  content: string
+  feedSource: string
+}
 
 // ARCE puts the object description in content:encoded, not the title. Expose
 // those fields so contentSnippet/content are actually populated.
@@ -69,54 +99,120 @@ function stripMarkdownFences(text: string): string {
     .trim()
 }
 
+interface FeedFetchResult {
+  items: RawFeedItem[]
+  feedsTotal: number
+  feedsFailed: number
+  allFailed: boolean
+}
+
 /**
- * Fetch the given family feeds in parallel and return the deduplicated items.
- * ARCE only filters the RSS by family, so these feeds return the whole family;
- * the fine-grained relevance filter happens in code (keywords). Feeds that fail
- * are skipped.
+ * Fetch the given family feeds in parallel, each with the SAME retries/backoff
+ * as the pipeline (via fetchFeedWithRetries, proxy-aware), and return the
+ * deduplicated raw items plus per-feed stats. ARCE only filters the RSS by
+ * family, so these feeds return the whole family; the fine-grained relevance
+ * filter happens later in code. A feed that still fails after retries is counted
+ * so the caller can tell a transient ARCE failure from a genuinely empty read.
  */
-async function fetchSampleItems(familyFeeds: string[]): Promise<SampleItem[]> {
-  const settled = await Promise.allSettled(familyFeeds.map((feed) => parser.parseURL(feed)))
+async function fetchFamilyFeeds(familyFeeds: string[]): Promise<FeedFetchResult> {
+  const results = await Promise.all(
+    familyFeeds.map(async (feed) => {
+      const { xml, attempts, error } = await fetchFeedWithRetries(feed)
+      if (xml === null) {
+        console.error(`[CRIBAL][SAMPLE] Feed falló tras ${attempts} intento(s): ${feed} — ${error}`)
+        return { feed, ok: false as const, items: [] as RawFeedItem[] }
+      }
+      try {
+        const parsed = await parser.parseString(xml)
+        const items: RawFeedItem[] = (parsed.items ?? []).map((raw) => ({
+          title: raw.title ?? '',
+          link: raw.link ?? '',
+          guid: raw.guid ?? raw.link ?? '',
+          pubDate: raw.pubDate ?? '',
+          contentSnippet: raw.contentSnippet ?? raw['content:encodedSnippet'] ?? '',
+          content: raw.content ?? raw['content:encoded'] ?? '',
+          feedSource: feed,
+        }))
+        return { feed, ok: true as const, items }
+      } catch (parseError) {
+        const message = parseError instanceof Error ? parseError.message : String(parseError)
+        console.error(`[CRIBAL][SAMPLE] Parseo falló para ${feed}: ${message}`)
+        return { feed, ok: false as const, items: [] as RawFeedItem[] }
+      }
+    })
+  )
 
   const seen = new Set<string>()
-  const items: SampleItem[] = []
-
-  for (let i = 0; i < settled.length; i++) {
-    const result = settled[i]
-    if (result.status === 'rejected') {
-      const message =
-        result.reason instanceof Error ? result.reason.message : String(result.reason)
-      console.error(`[CRIBAL][VALIDACION] Feed ${familyFeeds[i]} falló: ${message}`)
+  const items: RawFeedItem[] = []
+  let feedsFailed = 0
+  for (const result of results) {
+    if (!result.ok) {
+      feedsFailed++
       continue
     }
-    for (const raw of result.value.items ?? []) {
-      const title = raw.title ?? ''
-      const link = raw.link ?? ''
-      const id = raw.guid ?? link
-      if (!id || seen.has(id)) continue
-      seen.add(id)
+    for (const raw of result.items) {
+      if (!raw.guid || seen.has(raw.guid)) continue
+      seen.add(raw.guid)
+      items.push(raw)
+    }
+  }
 
-      // The object description lives in the content fields, never the title.
-      const contentSnippet = raw.contentSnippet ?? raw['content:encodedSnippet'] ?? ''
-      const content = raw.content ?? raw['content:encoded'] ?? ''
-      const bestContent = contentSnippet || content
+  return {
+    items,
+    feedsTotal: familyFeeds.length,
+    feedsFailed,
+    allFailed: familyFeeds.length > 0 && feedsFailed === familyFeeds.length,
+  }
+}
 
+/** Raw items from the global feed cache (last successful read) for these feeds. */
+async function loadFromCache(familyFeeds: string[]): Promise<RawFeedItem[]> {
+  const seen = new Set<string>()
+  const items: RawFeedItem[] = []
+  for (const feed of familyFeeds) {
+    const cached = await getCachedFeedItems(feed)
+    if (!cached) continue
+    for (const raw of cached as RssItem[]) {
+      const guid = raw.guid || raw.link
+      if (!guid || seen.has(guid)) continue
+      seen.add(guid)
       items.push({
-        id,
-        title,
-        object: stripHtml(bestContent).slice(0, 500),
-        organismo: organismoFromTitle(title),
-        url: link,
-        feedSource: familyFeeds[i],
-        isOpen: isOpenTender(bestContent),
-        contentSnippet,
-        // Full, untruncated text for keyword matching (diacritic-insensitive):
-        // title + both content fields.
-        searchText: normalizeText(`${title} ${contentSnippet} ${content}`),
+        title: raw.title,
+        link: raw.link,
+        guid,
+        pubDate: raw.pubDate,
+        contentSnippet: raw.contentSnippet,
+        content: raw.content,
+        feedSource: feed,
       })
     }
   }
   return items
+}
+
+/** Keep items published within the recency window; undated items are kept. */
+function withinRecencyWindow(raw: RawFeedItem, cutoff: Date): boolean {
+  if (!raw.pubDate) return true
+  const date = new Date(raw.pubDate)
+  if (Number.isNaN(date.getTime())) return true
+  return date >= cutoff
+}
+
+/** Build a sample item (with the internal matching fields) from a raw feed item. */
+function toSampleItem(raw: RawFeedItem): SampleItem {
+  const bestContent = raw.contentSnippet || raw.content
+  return {
+    id: raw.guid,
+    title: raw.title,
+    object: stripHtml(bestContent).slice(0, 500),
+    organismo: organismoFromTitle(raw.title),
+    url: raw.link,
+    feedSource: raw.feedSource,
+    isOpen: isOpenTender(bestContent),
+    contentSnippet: raw.contentSnippet,
+    // Full, untruncated text for keyword matching (diacritic-insensitive).
+    searchText: normalizeText(`${raw.title} ${raw.contentSnippet} ${raw.content}`),
+  }
 }
 
 const AI_SYSTEM_PROMPT = `Clasificá estas licitaciones como relevantes o no para la empresa indicada.
@@ -217,38 +313,68 @@ export async function fetchAndClassifyValidationSample(
   relevantKeywords: string[],
   companyProfile: CompanyProfileInput,
   extra: { exclusions?: string[]; userExamples?: UserExample[] } = {}
-): Promise<{ items: ClassifiedValidationItem[]; usedFallback: boolean }> {
-  // Diagnostic: confirm exactly which keywords reached the server action.
-  console.log(
-    '[CRIBAL][VALIDACION] Keywords recibidos:',
-    relevantKeywords.length,
-    '(mostrando primeros 10):',
-    JSON.stringify(relevantKeywords.slice(0, 10))
-  )
-
+): Promise<ValidationSampleResult> {
   // 1. Normalize to family-level feeds only (dedupe, drop non-family feeds).
   const familyFeeds = [
     ...new Set(feeds.map(normalizeFeedToFamily).filter((f) => f.includes('/familia/'))),
   ]
-  if (familyFeeds.length === 0) return { items: [], usedFallback: false }
-
-  // 2-4. Fetch, normalize and deduplicate.
-  const allItems = await fetchSampleItems(familyFeeds)
-
-  // Diagnostic: confirm the content fields are actually read from the RSS.
-  if (allItems.length > 0) {
-    const first = allItems[0]
-    console.log(
-      `[CRIBAL][VALIDACION] Primer item — title: "${first.title}" | contentSnippet: "${first.contentSnippet.slice(0, 120)}" | object: "${first.object}"`
-    )
+  if (familyFeeds.length === 0) {
+    return {
+      status: 'empty',
+      items: [],
+      usedFallback: false,
+      source: 'arce',
+      fromCache: false,
+      message: 'No hay categorías configuradas para buscar licitaciones.',
+    }
   }
 
-  // 5. Apply the company's keyword filter in code (the real fine-grained filter).
-  // Match against the full normalized text: title + contentSnippet + content.
+  const familyNumbers = familyFeeds.map((f) => f.match(/\/familia\/(\d+)/)?.[1] ?? '?')
+
+  // 2. Read the feeds from ARCE (with pipeline retries). On a TOTAL failure, fall
+  // back to the last successful read saved in the global tables.
+  const fetchResult = await fetchFamilyFeeds(familyFeeds)
+  let rawItems = fetchResult.items
+  let source: 'arce' | 'db' = 'arce'
+  let fromCache = false
+
+  if (fetchResult.allFailed) {
+    const cached = await loadFromCache(familyFeeds)
+    if (cached.length === 0) {
+      // ARCE is unreachable and nothing is saved — this is an error, NOT "no
+      // results". The UI must offer a retry, not an empty "no matches" list.
+      console.log(
+        `[CRIBAL][SAMPLE] fuente=arce familias=[${familyNumbers.join(', ')}] feeds=${fetchResult.feedsTotal} fallidos=${fetchResult.feedsFailed} — ARCE no respondió y sin respaldo en DB`
+      )
+      return {
+        status: 'arce_error',
+        items: [],
+        usedFallback: false,
+        source: 'arce',
+        fromCache: false,
+        message: 'No pudimos leer ARCE en este momento.',
+      }
+    }
+    rawItems = cached
+    source = 'db'
+    fromCache = true
+  }
+
+  // 3. Staged logs.
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - SAMPLE_DATE_WINDOW_DAYS)
+  const afterDate = rawItems.filter((raw) => withinRecencyWindow(raw, cutoff))
+  const allItems = afterDate.map(toSampleItem)
+
   const keywordsToMatch = relevantKeywords.map(normalizeText).filter(Boolean)
+  const exclusionsToMatch = (extra.exclusions ?? []).map(normalizeText).filter(Boolean)
   const filtered =
     keywordsToMatch.length > 0
-      ? allItems.filter((item) => keywordsToMatch.some((kw) => item.searchText.includes(kw)))
+      ? allItems.filter(
+          (item) =>
+            keywordsToMatch.some((kw) => item.searchText.includes(kw)) &&
+            !exclusionsToMatch.some((ex) => item.searchText.includes(ex))
+        )
       : []
 
   // Only fall back to an unfiltered sample when there are ZERO matches — even 1
@@ -256,16 +382,21 @@ export async function fetchAndClassifyValidationSample(
   const usedFallback = filtered.length === 0
   const sample = usedFallback ? allItems.slice(0, FALLBACK_SIZE) : filtered.slice(0, SAMPLE_SIZE)
 
-  // 6. Log.
-  const familyNumbers = familyFeeds.map((f) => f.match(/\/familia\/(\d+)/)?.[1] ?? '?')
   console.log(
-    `[CRIBAL][VALIDACION] Familias consultadas: [${familyNumbers.join(', ')}] | Total items: ${allItems.length} | Tras filtro keywords: ${filtered.length}`
-  )
-  console.log(
-    `[CRIBAL][VALIDACION] Matches: ${filtered.length} | Fallback: ${usedFallback} | Muestra: ${sample.length} items`
+    `[CRIBAL][SAMPLE] fuente=${source}${fromCache ? ' (respaldo)' : ''} familias=[${familyNumbers.join(', ')}] crudos=${rawItems.length} tras_fecha=${afterDate.length} tras_keywords_exclusiones=${filtered.length} a_clasificar=${sample.length}`
   )
 
-  // 7. Classify with Claude, passing keywords/exclusions and the user's own
+  // 4. Truly empty read (feeds answered but had nothing recent to show): this is
+  // "no results", with a message that names the stage that discarded everything.
+  if (sample.length === 0) {
+    const message =
+      rawItems.length === 0
+        ? 'No hay licitaciones recientes en estas categorías. Probá agregar más categorías.'
+        : 'No hay licitaciones recientes en estas categorías dentro del período analizado.'
+    return { status: 'empty', items: [], usedFallback: false, source, fromCache, message }
+  }
+
+  // 5. Classify with Claude, passing keywords/exclusions and the user's own
   // marked examples so it follows the user's criterion.
   const classifications = await classifyItems(sample, companyProfile, {
     keywords: relevantKeywords,
@@ -285,5 +416,11 @@ export async function fetchAndClassifyValidationSample(
     }
   })
 
-  return { items, usedFallback }
+  // The keyword filter matched nothing but there ARE recent tenders — show the
+  // broad sample with a message pointing at the keywords stage.
+  const message = usedFallback
+    ? 'Ninguna licitación reciente coincide con tus palabras clave; probá con términos más amplios.'
+    : undefined
+
+  return { status: 'ok', items, usedFallback, source, fromCache, message }
 }
