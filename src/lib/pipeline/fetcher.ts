@@ -72,9 +72,11 @@ async function fetchFeedXml(url: string): Promise<string> {
 
 /**
  * Fetch one feed with up to 3 attempts and growing backoff (5s, 20s, 60s).
- * Network errors, timeouts and HTTP 5xx/429 are retried; 4xx are not.
+ * Network errors, timeouts and HTTP 5xx/429 are retried; 4xx are not. Exported
+ * so other readers (e.g. the onboarding validation sample) retry ARCE exactly
+ * like the pipeline instead of giving up on the first failure.
  */
-async function fetchFeedWithRetries(
+export async function fetchFeedWithRetries(
   url: string
 ): Promise<{ xml: string | null; attempts: number; error?: string }> {
   let lastError = ''

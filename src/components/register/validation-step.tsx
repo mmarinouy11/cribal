@@ -55,6 +55,10 @@ export function ValidationStep({
   const [sample, setSample] = useState<ValidationItem[]>([])
   const [loading, setLoading] = useState(true)
   const [usedFallback, setUsedFallback] = useState(false)
+  // Distinguish "ARCE did not respond" (error, offer retry) from "no results".
+  const [sampleStatus, setSampleStatus] = useState<'ok' | 'empty' | 'arce_error'>('ok')
+  const [sampleMessage, setSampleMessage] = useState<string | null>(null)
+  const [fromCache, setFromCache] = useState(false)
   // AI pre-classification vs the user's explicit marks. The user's marks win and
   // persist across reloads (they are the criterion the AI must follow).
   const [aiMarks, setAiMarks] = useState<Record<string, Mark>>({})
@@ -97,6 +101,9 @@ export function ValidationStep({
       setAiMarks({})
       setAiReasons({})
       setUsedFallback(false)
+      setSampleStatus('empty')
+      setSampleMessage('No hay categorías activas. Agregá al menos una para ver una muestra.')
+      setFromCache(false)
       setLoading(false)
       return
     }
@@ -118,6 +125,9 @@ export function ValidationStep({
         if (requestRef.current !== id) return
         setSample(result.items)
         setUsedFallback(result.usedFallback)
+        setSampleStatus(result.status)
+        setSampleMessage(result.message ?? null)
+        setFromCache(result.fromCache)
         // Replace the AI marks; the user's own marks persist and still win.
         const nextAi: Record<string, Mark> = {}
         const nextReasons: Record<string, string> = {}
@@ -132,10 +142,15 @@ export function ValidationStep({
         setChecked({})
       } catch {
         if (requestRef.current === id) {
+          // A thrown error here means the read failed — treat it as ARCE not
+          // responding, never as an empty "no matches" list.
           setSample([])
           setAiMarks({})
           setAiReasons({})
           setUsedFallback(false)
+          setSampleStatus('arce_error')
+          setSampleMessage('No pudimos leer ARCE en este momento.')
+          setFromCache(false)
         }
       } finally {
         if (requestRef.current === id) setLoading(false)
@@ -256,6 +271,14 @@ export function ValidationStep({
     setReloadToken((t) => t + 1)
   }
 
+  // Re-run the sample read (used by the "Reintentar" button after an ARCE
+  // failure or an empty read).
+  function reloadSample() {
+    setApplied(false)
+    setSuggestions(null)
+    setReloadToken((t) => t + 1)
+  }
+
   const hasSuggestions =
     suggestions !== null && (suggestions.add.length > 0 || suggestions.exclude.length > 0)
 
@@ -358,11 +381,33 @@ export function ValidationStep({
             </p>
             <p className="text-xs text-[#6b7280]">Esto toma unos segundos.</p>
           </div>
+        ) : sampleStatus === 'arce_error' ? (
+          <div className="flex flex-col items-start gap-3 rounded-lg border border-[#fecaca] bg-[#fef2f2] px-4 py-4">
+            <p className="text-sm font-medium text-[#b91c1c]">
+              {sampleMessage ?? 'No pudimos leer ARCE en este momento.'}
+            </p>
+            <button
+              type="button"
+              onClick={reloadSample}
+              className="rounded-lg bg-[#06b6d4] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0891b2]"
+            >
+              Reintentar
+            </button>
+          </div>
         ) : sample.length === 0 ? (
-          <p className="rounded-lg border border-[#e0f2fe] bg-[#f8fafc] px-4 py-3 text-sm text-[#6b7280]">
-            No encontramos licitaciones históricas para estas categorías. Podés agregar más
-            categorías o continuar.
-          </p>
+          <div className="flex flex-col items-start gap-3 rounded-lg border border-[#e0f2fe] bg-[#f8fafc] px-4 py-4">
+            <p className="text-sm text-[#6b7280]">
+              {sampleMessage ??
+                'No hay licitaciones recientes en estas categorías. Podés agregar más categorías o continuar.'}
+            </p>
+            <button
+              type="button"
+              onClick={reloadSample}
+              className="rounded-lg border border-[#e0f2fe] bg-white px-3 py-1.5 text-sm font-medium text-[#0c1e3c] hover:bg-[#f0f9ff]"
+            >
+              Reintentar
+            </button>
+          </div>
         ) : (
           <>
             <p className="text-xs text-[#6b7280]">
@@ -372,11 +417,28 @@ export function ValidationStep({
               según tu perfil; podés ajustar cualquier marcación.
             </p>
 
-            {usedFallback ? (
-              <p className="rounded-lg border border-[#fde68a] bg-[#fffbeb] px-3 py-2 text-xs text-[#92400e]">
-                No encontramos licitaciones que coincidan exactamente con tu perfil. Mostramos una
-                muestra más amplia para que puedas ajustar los filtros.
+            {fromCache && (
+              <p className="rounded-lg border border-[#bae6fd] bg-[#f0f9ff] px-3 py-2 text-xs text-[#0e7490]">
+                No pudimos leer ARCE en este momento; mostramos licitaciones de la última lectura
+                exitosa.
               </p>
+            )}
+
+            {usedFallback ? (
+              <div className="flex flex-col items-start gap-2 rounded-lg border border-[#fde68a] bg-[#fffbeb] px-3 py-2">
+                <p className="text-xs text-[#92400e]">
+                  {sampleMessage ??
+                    'Ninguna licitación reciente coincide con tus palabras clave; probá con términos más amplios.'}{' '}
+                  Mientras tanto mostramos una muestra más amplia para que puedas ajustar los filtros.
+                </p>
+                <button
+                  type="button"
+                  onClick={reloadSample}
+                  className="rounded-lg border border-[#fde68a] bg-white px-3 py-1 text-xs font-medium text-[#92400e] hover:bg-[#fffbeb]"
+                >
+                  Reintentar
+                </button>
+              </div>
             ) : (
               sample.length < 5 && (
                 <p className="rounded-lg border border-[#bae6fd] bg-[#f0f9ff] px-3 py-2 text-xs text-[#0e7490]">
