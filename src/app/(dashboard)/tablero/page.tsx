@@ -229,6 +229,7 @@ export default async function DashboardPage() {
   const runFailed =
     lastRun?.status === RunStatus.FAILED || lastRun?.status === RunStatus.PARTIAL
   const failedAt = runFailed ? formatDateTime(lastRun.finishedAt ?? lastRun.startedAt) : null
+  const isPartialRun = lastRun?.status === RunStatus.PARTIAL
   const failureReason = lastRun?.failureReason ?? 'error inesperado'
   const failureDetail = lastRun?.failureDetail ?? undefined
 
@@ -259,8 +260,9 @@ export default async function DashboardPage() {
           <i className="ti ti-cloud-off mt-0.5 text-lg text-amber-600" aria-hidden />
           <div className="flex-1">
             <p className="text-sm font-medium text-[#92400e]" title={failureDetail}>
-              La última actualización falló: {failureReason} ({failedAt}). Vamos a reintentar
-              automáticamente en la próxima corrida.
+              {isPartialRun
+                ? `La última actualización quedó incompleta: ${failureReason} (${failedAt}). Lo pendiente se reintenta automáticamente en la próxima corrida.`
+                : `La última actualización falló: ${failureReason} (${failedAt}). Vamos a reintentar automáticamente en la próxima corrida.`}
             </p>
             <p className="mt-0.5 text-xs text-[#b45309]">
               También podés ejecutar la criba manualmente con el botón de arriba.

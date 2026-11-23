@@ -415,6 +415,20 @@ export async function runPipeline(
       console.warn(
         `[CRIBAL][IA] ${unclassifiedIds.length} llamado(s) sin clasificar para ${company.companyName}`
       )
+      // Record them for audit; they are NOT saved as opportunities and the run is
+      // marked PARTIAL below, so they are retried on the next run.
+      for (const opportunityId of unclassifiedIds) {
+        const rawPubId = rawPubIdByOpportunityId.get(opportunityId)
+        if (rawPubId) {
+          await prisma.rawPublication.update({
+            where: { id: rawPubId },
+            data: {
+              filterResult: 'sin_clasificar',
+              filterReason: 'La IA no pudo clasificarla (respuesta incompleta); se reintenta',
+            },
+          })
+        }
+      }
     }
     const tenderByOpportunityId = new Map(tendersToClassify.map((t) => [t.opportunityId, t]))
 
@@ -569,14 +583,22 @@ export async function runPipeline(
     }
 
     // 13. Mark the run completed/partial. Only a fully successful run (every feed
-    // OK) advances lastSuccessfulRunAt, so a partial run retries next cron and the
-    // search window keeps covering the gap.
-    const finalStatus = someFeedsFailed ? 'PARTIAL' : 'COMPLETED'
+    // OK and every tender classified) advances lastSuccessfulRunAt, so a partial
+    // run retries next cron and the search window keeps covering the gap. Tenders
+    // the AI could not classify also make the run PARTIAL so they are retried.
+    const hasUnclassified = unclassifiedIds.length > 0
+    const finalStatus = someFeedsFailed || hasUnclassified ? 'PARTIAL' : 'COMPLETED'
+    const partialReasons: string[] = []
+    if (someFeedsFailed) partialReasons.push('algunos feeds de ARCE no respondieron')
+    if (hasUnclassified) {
+      partialReasons.push(`${unclassifiedIds.length} licitación(es) quedaron sin clasificar`)
+    }
     await prisma.run.update({
       where: { id: run.id },
       data: {
         status: finalStatus,
         finishedAt: new Date(),
+        failureReason: finalStatus === 'PARTIAL' ? partialReasons.join('; ') : null,
         errors: errors as unknown as Prisma.InputJsonValue,
       },
     })

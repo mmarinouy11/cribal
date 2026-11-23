@@ -313,6 +313,31 @@ ${itemsBlock}`
 }
 
 /**
+ * Re-classify a specific set of sample items — the UI's "Reintentar
+ * clasificación" button for items the first pass left unclassified. Returns a
+ * plain, serializable payload the client merges into its state.
+ */
+export async function reclassifyValidationItems(
+  items: ValidationItem[],
+  companyProfile: CompanyProfileInput,
+  extra: { keywords: string[]; exclusions?: string[]; userExamples?: UserExample[] }
+): Promise<{ classifications: AiClassification[]; unclassifiedIds: string[] }> {
+  if (items.length === 0) return { classifications: [], unclassifiedIds: [] }
+  try {
+    const { byId, unclassifiedIds } = await classifyItems(items, companyProfile, {
+      keywords: extra.keywords,
+      exclusions: extra.exclusions ?? [],
+      userExamples: extra.userExamples ?? [],
+    })
+    return { classifications: [...byId.values()], unclassifiedIds }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[CRIBAL][SAMPLE] reintento de clasificación falló: ${message}`)
+    return { classifications: [], unclassifiedIds: items.map((i) => i.id) }
+  }
+}
+
+/**
  * Load a sample for the validation step and classify it with Claude in a single
  * call. ARCE's RSS endpoint ONLY filters by family (subfamily and free-text
  * params are ignored and return the whole family / the 1000 most recent items),
