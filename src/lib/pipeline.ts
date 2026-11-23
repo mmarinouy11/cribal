@@ -9,7 +9,7 @@ import { filterByKeywords } from './pipeline/keywordFilter'
 import { filterExclusions } from './pipeline/exclusionFilter'
 import { applyStageGate, type StageGateResult } from './pipeline/stageGate'
 import { filterDuplicates } from './pipeline/deduplicator'
-import { classifyTenders } from './pipeline/classifier'
+import { classifyTenders, type ClassificationOutcome } from './pipeline/classifier'
 import { getOnboardingExamples } from './actions/onboarding-opportunities'
 import { ingestFailedTenders } from './pipeline/failed-tenders'
 import { sendDigest, type NicheDigestItem } from './email/digest'
@@ -380,9 +380,9 @@ export async function runPipeline(
     // must fail the run and NOT advance lastSuccessfulRunAt, like feeds down.
     // The company's onboarding marks calibrate the classifier.
     const onboardingExamples = await getOnboardingExamples(company.id)
-    let classifications
+    let classification: ClassificationOutcome
     try {
-      classifications = await classifyTenders(tendersToClassify, company, onboardingExamples)
+      classification = await classifyTenders(tendersToClassify, company, onboardingExamples)
     } catch (error) {
       if (error instanceof AiServiceError) {
         const kind = aiFailureKind(error)
@@ -409,6 +409,26 @@ export async function runPipeline(
         }
       }
       throw error
+    }
+    const { results: classifications, unclassifiedIds } = classification
+    if (unclassifiedIds.length > 0) {
+      console.warn(
+        `[CRIBAL][IA] ${unclassifiedIds.length} llamado(s) sin clasificar para ${company.companyName}`
+      )
+      // Record them for audit; they are NOT saved as opportunities and the run is
+      // marked PARTIAL below, so they are retried on the next run.
+      for (const opportunityId of unclassifiedIds) {
+        const rawPubId = rawPubIdByOpportunityId.get(opportunityId)
+        if (rawPubId) {
+          await prisma.rawPublication.update({
+            where: { id: rawPubId },
+            data: {
+              filterResult: 'sin_clasificar',
+              filterReason: 'La IA no pudo clasificarla (respuesta incompleta); se reintenta',
+            },
+          })
+        }
+      }
     }
     const tenderByOpportunityId = new Map(tendersToClassify.map((t) => [t.opportunityId, t]))
 
@@ -563,14 +583,22 @@ export async function runPipeline(
     }
 
     // 13. Mark the run completed/partial. Only a fully successful run (every feed
-    // OK) advances lastSuccessfulRunAt, so a partial run retries next cron and the
-    // search window keeps covering the gap.
-    const finalStatus = someFeedsFailed ? 'PARTIAL' : 'COMPLETED'
+    // OK and every tender classified) advances lastSuccessfulRunAt, so a partial
+    // run retries next cron and the search window keeps covering the gap. Tenders
+    // the AI could not classify also make the run PARTIAL so they are retried.
+    const hasUnclassified = unclassifiedIds.length > 0
+    const finalStatus = someFeedsFailed || hasUnclassified ? 'PARTIAL' : 'COMPLETED'
+    const partialReasons: string[] = []
+    if (someFeedsFailed) partialReasons.push('algunos feeds de ARCE no respondieron')
+    if (hasUnclassified) {
+      partialReasons.push(`${unclassifiedIds.length} licitación(es) quedaron sin clasificar`)
+    }
     await prisma.run.update({
       where: { id: run.id },
       data: {
         status: finalStatus,
         finishedAt: new Date(),
+        failureReason: finalStatus === 'PARTIAL' ? partialReasons.join('; ') : null,
         errors: errors as unknown as Prisma.InputJsonValue,
       },
     })

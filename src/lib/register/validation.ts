@@ -25,6 +25,10 @@ export interface AiClassification {
 export interface ClassifiedValidationItem extends ValidationItem {
   aiRelevant: boolean
   aiReason: string
+  // 'unclassified' when the AI response was truncated/unparseable for this item,
+  // so the UI can show "Sin clasificar" and offer a retry. Optional so older
+  // callers that build the item without it still type-check.
+  aiStatus?: 'classified' | 'unclassified'
 }
 
 export interface CompanyProfileInput {

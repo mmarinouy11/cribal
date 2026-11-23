@@ -7,6 +7,8 @@ export type AiErrorType =
   | 'rate_limit' // 429
   | 'overloaded' // 5xx / unavailable
   | 'invalid_request' // other 4xx
+  | 'truncated' // response hit max_tokens — output was cut off
+  | 'parse_error' // response could not be parsed into the expected shape
   | 'unknown'
 
 export interface ClassifiedAiError {
@@ -86,6 +88,10 @@ export function aiErrorReason(type: AiErrorType): string {
       return 'servicio de IA no disponible'
     case 'invalid_request':
       return 'error en la solicitud de IA'
+    case 'truncated':
+      return 'respuesta de IA incompleta'
+    case 'parse_error':
+      return 'respuesta de IA ilegible'
     default:
       return 'error de IA'
   }

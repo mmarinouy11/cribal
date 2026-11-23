@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchAndClassifyValidationSample } from '@/lib/actions/register'
+import { fetchAndClassifyValidationSample, reclassifyValidationItems } from '@/lib/actions/register'
 import { suggestAdjustmentsFromMarks } from '@/lib/actions/onboarding-suggestions'
 import {
   categoriesToDrop,
@@ -64,6 +64,9 @@ export function ValidationStep({
   const [aiMarks, setAiMarks] = useState<Record<string, Mark>>({})
   const [userMarks, setUserMarks] = useState<Record<string, Mark>>({})
   const [aiReasons, setAiReasons] = useState<Record<string, string>>({})
+  // Per-item classification status, and which items are being re-classified.
+  const [aiStatus, setAiStatus] = useState<Record<string, 'classified' | 'unclassified'>>({})
+  const [retrying, setRetrying] = useState<Record<string, boolean>>({})
   const [showCatalog, setShowCatalog] = useState(false)
   const [showSelector, setShowSelector] = useState(false)
   const [suggestions, setSuggestions] = useState<AdjustmentSuggestions | null>(null)
@@ -131,12 +134,15 @@ export function ValidationStep({
         // Replace the AI marks; the user's own marks persist and still win.
         const nextAi: Record<string, Mark> = {}
         const nextReasons: Record<string, string> = {}
+        const nextStatus: Record<string, 'classified' | 'unclassified'> = {}
         for (const item of result.items) {
           nextAi[item.id] = item.aiRelevant ? 'relevant' : 'not_relevant'
           if (item.aiReason) nextReasons[item.id] = item.aiReason
+          nextStatus[item.id] = item.aiStatus ?? 'classified'
         }
         setAiMarks(nextAi)
         setAiReasons(nextReasons)
+        setAiStatus(nextStatus)
         setSuggestions(null)
         setSuggestError(false)
         setChecked({})
@@ -147,6 +153,7 @@ export function ValidationStep({
           setSample([])
           setAiMarks({})
           setAiReasons({})
+          setAiStatus({})
           setUsedFallback(false)
           setSampleStatus('arce_error')
           setSampleMessage('No pudimos leer ARCE en este momento.')
@@ -277,6 +284,35 @@ export function ValidationStep({
     setApplied(false)
     setSuggestions(null)
     setReloadToken((t) => t + 1)
+  }
+
+  // Re-classify a single item the first pass left unclassified, without
+  // reloading the whole sample.
+  async function retryClassification(itemId: string) {
+    const item = sample.find((i) => i.id === itemId)
+    if (!item || retrying[itemId]) return
+    setRetrying((prev) => ({ ...prev, [itemId]: true }))
+    try {
+      const userExamples: UserExample[] = sample
+        .filter((i) => marks[i.id] === 'relevant' || marks[i.id] === 'not_relevant')
+        .map((i) => ({ object: getTenderObjectText(i) || i.object, relevant: marks[i.id] === 'relevant' }))
+        .slice(0, 10)
+      const res = await reclassifyValidationItems(
+        [item],
+        { name: companyName, description, capabilities },
+        { keywords: relevantKeywords, exclusions: appliedExclusions, userExamples }
+      )
+      const c = res.classifications.find((x) => x.id === itemId)
+      if (c) {
+        setAiMarks((prev) => ({ ...prev, [itemId]: c.relevant ? 'relevant' : 'not_relevant' }))
+        setAiReasons((prev) => ({ ...prev, [itemId]: c.reason }))
+        setAiStatus((prev) => ({ ...prev, [itemId]: 'classified' }))
+      } else {
+        setAiStatus((prev) => ({ ...prev, [itemId]: 'unclassified' }))
+      }
+    } finally {
+      setRetrying((prev) => ({ ...prev, [itemId]: false }))
+    }
   }
 
   const hasSuggestions =
@@ -454,6 +490,9 @@ export function ValidationStep({
               {sample.map((item) => {
                 const mark = marks[item.id]
                 const reason = aiReasons[item.id]
+                const status = aiStatus[item.id] ?? 'classified'
+                const aiMark = aiMarks[item.id]
+                const overridden = userMarks[item.id] != null
                 return (
                   <div key={item.id} className="rounded-lg border border-[#e0f2fe] px-3 py-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -507,8 +546,59 @@ export function ValidationStep({
                         </span>
                       )}
                     </div>
-                    {reason && (
-                      <p className="mt-0.5 text-xs italic text-[#94a3b8]">&ldquo;{reason}&rdquo;</p>
+                    {status === 'unclassified' ? (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full bg-[#fef3c7] px-2 py-0.5 text-[11px] font-medium text-[#92400e]">
+                          Sin clasificar
+                        </span>
+                        <span className="text-xs text-[#92400e]">
+                          No pudimos clasificarla en este momento.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => retryClassification(item.id)}
+                          disabled={retrying[item.id]}
+                          className="rounded-md border border-[#fde68a] bg-white px-2 py-0.5 text-xs font-medium text-[#92400e] hover:bg-[#fffbeb] disabled:opacity-60"
+                        >
+                          {retrying[item.id] ? 'Reintentando…' : 'Reintentar clasificación'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-1 space-y-0.5">
+                        <p className="text-xs text-[#6b7280]">
+                          {overridden ? (
+                            <>
+                              <span className="font-medium text-[#0c1e3c]">Tu marca</span> (reemplaza
+                              la sugerencia de la IA):{' '}
+                              <span
+                                className={
+                                  mark === 'relevant'
+                                    ? 'font-medium text-[#065f46]'
+                                    : 'font-medium text-[#b91c1c]'
+                                }
+                              >
+                                {mark === 'relevant' ? 'relevante' : 'no relevante'}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              La IA la marcó como{' '}
+                              <span
+                                className={
+                                  aiMark === 'relevant'
+                                    ? 'font-medium text-[#065f46]'
+                                    : 'font-medium text-[#b91c1c]'
+                                }
+                              >
+                                {aiMark === 'relevant' ? 'relevante' : 'no relevante'}
+                              </span>
+                            </>
+                          )}
+                        </p>
+                        {reason && (
+                          <p className="text-xs italic text-[#94a3b8]">&ldquo;{reason}&rdquo;</p>
+                        )}
+                      </div>
                     )}
                   </div>
                 )
