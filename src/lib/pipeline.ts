@@ -143,7 +143,10 @@ async function selectFirstRunActiveTenders(
  * Run the full pipeline for a single company: fetch, normalize, filter,
  * classify with Claude, persist opportunities and send the digest email.
  */
-export async function runPipeline(companyId: string): Promise<PipelineRunResult> {
+export async function runPipeline(
+  companyId: string,
+  options: { skipGlobalIngestion?: boolean } = {}
+): Promise<PipelineRunResult> {
   // 1. Load company config.
   const company = await prisma.companyConfig.findUnique({ where: { id: companyId } })
   if (!company) {
@@ -161,9 +164,24 @@ export async function runPipeline(companyId: string): Promise<PipelineRunResult>
   const errors: PipelineError[] = []
 
   try {
-    // 3. Fetch RSS feeds. Served from the shared cache when the global ingestion
-    // pass already downloaded them this run (so several companies share one
-    // download per feed); otherwise fetched directly with the normal retries.
+    // 2b. Shared ingestion for this company's feeds, unless the caller already
+    // ran the global pass (the cron runs it once for all due companies). This is
+    // what makes the manual "run now" path go through the same shared ingestion:
+    // it populates feed_cache / global_tenders and then the company reads from
+    // the global tables. The advisory lock + conditional download mean a recent
+    // same-day ingestion of the same families is reused, not re-downloaded.
+    if (!options.skipGlobalIngestion) {
+      try {
+        await runGlobalIngestion([...company.rssFeeds, ...FAILURE_FEED_URLS])
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(`[CRIBAL][INGEST] Ingesta por empresa falló (se continúa): ${message}`)
+      }
+    }
+
+    // 3. Fetch RSS feeds. Served from the shared cache the ingestion just filled
+    // (so several companies share one download per feed); otherwise fetched
+    // directly with the normal retries.
     const { items, errors: fetchErrors, feedStatuses } = await fetchCompanyFeeds(company.rssFeeds)
     for (const fetchError of fetchErrors) {
       errors.push({ stage: 'fetch', message: `${fetchError.feed}: ${fetchError.error}` })
@@ -659,7 +677,9 @@ export async function runPipelineAllCompanies(
   let ran = 0
   for (const company of dueCompanies) {
     try {
-      results.push(await runPipeline(company.id))
+      // The global ingestion already ran once above for every due company's
+      // feeds, so each company run skips its own ingestion and reads the cache.
+      results.push(await runPipeline(company.id, { skipGlobalIngestion: true }))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.error(`${prefix} Error inesperado en ${company.companyName}: ${message}`)
