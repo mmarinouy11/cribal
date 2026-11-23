@@ -175,7 +175,9 @@ regulares quedan siempre acotados a su empresa.
 2. **PostgreSQL** — `DATABASE_URL` se inyecta automáticamente por Railway.
 3. **Cron del pipeline** — corre **dentro del proceso Next.js** vía
    `instrumentation.ts` → `src/lib/pipeline-cron.ts` (node-cron), con schedule
-   `0 11 * * 1-5` (UTC; 08:00 Montevideo). No requiere ningún servicio de cron
+   `0 12 * * 1-5` en `America/Montevideo` (12:00 Montevideo = 15:00 UTC). La hora
+   se define en un solo lugar (`src/lib/schedule.ts`, por defecto 12:00) y se
+   puede sobreescribir con la variable de entorno `PIPELINE_CRON_HOUR`. No requiere ningún servicio de cron
    externo ni `$CRON_SECRET` (que no expande en el start command de la imagen
    Docker). El endpoint `POST /api/runs` con `Authorization: Bearer $CRON_SECRET`
    sigue disponible para disparos manuales.

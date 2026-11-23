@@ -1,19 +1,39 @@
 // Single source of truth for when the automatic pipeline runs: weekdays
-// (Mon–Fri) at 08:00 America/Montevideo. Montevideo is UTC-3 year-round (no DST
-// since 2015), so 08:00 local is 11:00 UTC. Both the cron scheduler and the
-// "next run" banner read from here so the schedule is never duplicated.
+// (Mon–Fri) at PIPELINE_HOUR_MONTEVIDEO (default 12:00) in America/Montevideo.
+// The hour is defined in LOCAL (Montevideo) time, not UTC; everything else — the
+// cron string, the UTC hour used by the "next run" math, and the user-facing
+// label — derives from it. Override with the PIPELINE_CRON_HOUR env var (0-23).
+// Montevideo is UTC-3 year-round (no DST since 2015), so the UTC hour is +3.
+//
+// Note: PIPELINE_CRON_HOUR is read where this module runs. On the server (the
+// cron and the banner's server renders) the override applies; in client bundles
+// the env var is not inlined, so the banner there uses the default 12:00.
 
-export const RUN_HOUR_UTC = 11 // 08:00 America/Montevideo
-export const RUN_CRON = `0 ${RUN_HOUR_UTC} * * 1-5`
-const TIME_ZONE = 'America/Montevideo'
-const RUN_TIME_LABEL = '8:00'
+export const TIME_ZONE = 'America/Montevideo'
 
-/** The next instant the pipeline is scheduled to run (weekday 11:00 UTC). */
+function readHour(raw: string | undefined, fallback: number): number {
+  const parsed = raw != null && raw.trim() !== '' ? Number(raw) : Number.NaN
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 23 ? parsed : fallback
+}
+
+/** The local Montevideo hour the automatic pipeline runs at (default 12:00). */
+export const PIPELINE_HOUR_MONTEVIDEO = readHour(process.env.PIPELINE_CRON_HOUR, 12)
+
+/** Equivalent UTC hour (Montevideo is UTC-3 year-round). */
+export const RUN_HOUR_UTC = (PIPELINE_HOUR_MONTEVIDEO + 3) % 24
+
+/** Cron expression in Montevideo local time (schedulers pass `timezone: TIME_ZONE`). */
+export const RUN_CRON = `0 ${PIPELINE_HOUR_MONTEVIDEO} * * 1-5`
+
+/** User-facing time label, e.g. "12:00". */
+export const RUN_TIME_LABEL = `${PIPELINE_HOUR_MONTEVIDEO}:00`
+
+/** The next instant the pipeline is scheduled to run (weekday, local run hour). */
 export function nextScheduledRunAt(now: Date = new Date()): Date {
   const candidate = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), RUN_HOUR_UTC, 0, 0, 0)
   )
-  // Advance to the first weekday 11:00 UTC strictly in the future.
+  // Advance to the first weekday run hour strictly in the future.
   while (
     candidate.getTime() <= now.getTime() ||
     candidate.getUTCDay() === 0 || // Sunday
@@ -50,8 +70,8 @@ function montevideoDayKey(date: Date): string {
 }
 
 /**
- * Spanish label for the next run: "hoy a las 8:00" when it is today, otherwise
- * "el lunes 23 de noviembre a las 8:00" (real day computed in Montevideo time).
+ * Spanish label for the next run: "hoy a las 12:00" when it is today, otherwise
+ * "el lunes 23 de noviembre a las 12:00" (real day computed in Montevideo time).
  */
 export function formatNextRunLabel(now: Date = new Date()): string {
   const next = nextScheduledRunAt(now)

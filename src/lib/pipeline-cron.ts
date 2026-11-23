@@ -1,6 +1,6 @@
 import cron from 'node-cron'
 import { runPipelineAllCompanies } from '@/lib/pipeline'
-import { RUN_CRON } from '@/lib/schedule'
+import { RUN_CRON, RUN_TIME_LABEL, TIME_ZONE } from '@/lib/schedule'
 
 let cronStarted = false
 
@@ -16,7 +16,7 @@ export function startPipelineCron() {
   }
   cronStarted = true
 
-  // Monday–Friday at 11:00 UTC = 08:00 Montevideo (shared with the banner).
+  // Monday–Friday at the run hour in Montevideo time (shared with the banner).
   cron.schedule(
     RUN_CRON,
     async () => {
@@ -27,8 +27,8 @@ export function startPipelineCron() {
         console.error('[CRIBAL][CRON] Error en pipeline automático:', err)
       }
     },
-    { timezone: 'UTC' }
+    { timezone: TIME_ZONE }
   )
 
-  console.log('[CRIBAL][CRON] Scheduler iniciado — L-V 11:00 UTC (08:00 Montevideo)')
+  console.log(`[CRIBAL][CRON] Scheduler iniciado — L-V ${RUN_TIME_LABEL} ${TIME_ZONE}`)
 }

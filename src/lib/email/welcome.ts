@@ -1,5 +1,6 @@
 import { Resend } from 'resend'
 import { APP_URL, emailShell, escapeHtml, renderFooter, renderHeader } from './branding'
+import { RUN_TIME_LABEL } from '@/lib/schedule'
 
 let cachedResend: Resend | null = null
 
@@ -29,7 +30,7 @@ export function buildWelcomeHtml(userName: string, companyName: string): string 
 
       <div style="font-size:16px;font-weight:700;color:#0c1e3c;margin:20px 0 8px 0;">Qué sigue ahora</div>
       <ol style="margin:0 0 16px 20px;padding:0;font-size:14px;color:#334155;">
-        <li style="margin-bottom:6px;">El pipeline correrá automáticamente en el próximo ciclo (días hábiles a la mañana).</li>
+        <li style="margin-bottom:6px;">El pipeline correrá automáticamente en el próximo ciclo (días hábiles a las ${RUN_TIME_LABEL}, hora de Uruguay).</li>
         <li style="margin-bottom:6px;">Recibirás un email con las oportunidades detectadas.</li>
         <li style="margin-bottom:6px;">Podés correr el pipeline manualmente desde el dashboard.</li>
       </ol>

@@ -5,8 +5,8 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24
 /**
  * Whole calendar days elapsed between two dates, counted by midnight boundaries
  * crossed (not exact 24h intervals). Using calendar dates — rather than
- * elapsed-ms — means a company that ran at 08:05 is "due" again the next
- * calendar day, so the daily 08:00 cron still triggers a lookbackDays:1 company
+ * elapsed-ms — means a company that ran at 12:05 is "due" again the next
+ * calendar day, so the daily weekday cron still triggers a lookbackDays:1 company
  * every weekday (it would otherwise be ~5 minutes short of a full 24h and skip).
  */
 function daysSince(from: Date, now: Date): number {
