@@ -12,9 +12,30 @@ const MIN_OBJECT_LENGTH = 6 // below this, there is no usable object text
 // including the "N/AAAA -" procedure number.
 const PROCEDURE_HEADER = /^[^|]*?\d+\s*\/\s*\d+\s*-\s*/
 
+/**
+ * Strip the "Recepción de ofertas hasta: 11:00hs 12:40hs" trailing clause and
+ * any opening/closing date-time remnants (e.g. "13:00hs | 15:40hs"). ARCE often
+ * appends these to titles; they are noise both on screen and for the AI.
+ */
+export function stripClosingMetadata(text: string): string {
+  return text
+    // Cut everything from the reception-of-offers clause to the end.
+    .replace(/\s*recepci[oó]n\s+de\s+ofertas\s+hasta\b.*$/is, '')
+    // Cut an opening/closing clause when it is followed by a time or date.
+    .replace(/\s*(apertura|cierre)(?:\s+electr[oó]nica)?\s*:?\s*(?=\d{1,2}[:/]).*$/is, '')
+    // Remove stray time tokens such as "11:00hs" / "13:15 hs" / "10:00".
+    .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s*hs\b/gi, ' ')
+    .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, ' ')
+    // Tidy leftover separators and the lone "hs" unit.
+    .replace(/\|/g, ' ')
+    .replace(/\bhs\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /** Strip page metadata (dates, times, URLs, procedure numbers, labels). */
 function stripMetadata(raw: string): string {
-  return raw
+  return stripClosingMetadata(raw)
     .replace(/publicad[oa]\s*:/gi, ' ')
     .replace(/[uú]ltima\s+modificaci[oó]n\s*:/gi, ' ')
     .replace(/fecha\s+de\s+(publicaci[oó]n|apertura|modificaci[oó]n)\s*:/gi, ' ')
@@ -47,9 +68,9 @@ export function hasTenderObject(item: TenderTextLike): boolean {
   return getTenderObjectText(item).length > 0
 }
 
-/** Title with the procedure/number header removed (buyer may remain). */
+/** Title with the procedure/number header and any closing-time clause removed. */
 export function cleanTitle(title: string): string {
-  return title.replace(PROCEDURE_HEADER, '').trim()
+  return stripClosingMetadata(title.replace(PROCEDURE_HEADER, '')).trim()
 }
 
 /** Best text to display for a tender: its object, or a header-less title. */
