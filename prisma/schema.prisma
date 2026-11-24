@@ -123,6 +123,7 @@ model Run {
   itemsAfterStageGate  Int           @default(0)
   itemsSentToAi        Int           @default(0)
   opportunitiesSaved   Int           @default(0)
+  itemsPromoted        Int           @default(0) // onboarding-sample opportunities promoted to source=pipeline
   failedTendersFound   Int           @default(0)
   nichesDetected       Int           @default(0)
   errors               Json          @default("[]")

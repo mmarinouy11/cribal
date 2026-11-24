@@ -1,15 +1,29 @@
+import type { OpportunityStatus } from '@prisma/client'
 import { prisma } from '../db/prisma'
 import type { NormalizedTender } from './normalizer'
 
+/** A candidate tender that already exists as an onboarding-sample opportunity. */
+export interface OnboardingMatch {
+  tender: NormalizedTender
+  opportunityDbId: string
+  status: OpportunityStatus
+}
+
 export interface DeduplicationResult {
   newTenders: NormalizedTender[]
+  // Existing pipeline opportunities — genuine duplicates, skipped.
   duplicates: NormalizedTender[]
+  // Existing onboarding-sample opportunities — candidates for promotion.
+  onboardingMatches: OnboardingMatch[]
 }
 
 /**
- * Split tenders into those not yet in the database and those that already exist
- * (matched by opportunityId). Scoped to a single company so tenants never see
- * each other's opportunities as duplicates.
+ * Split tenders into those not yet in the database, genuine duplicates (already
+ * a pipeline opportunity), and onboarding matches (already saved as a
+ * source="onboarding" calibration opportunity for this company). Matched by
+ * opportunityId and scoped to a single company. Onboarding matches are split out
+ * so the pipeline can PROMOTE the open relevant ones instead of discarding the
+ * real tender as a duplicate (which left new accounts with an empty dashboard).
  */
 export async function filterDuplicates(
   tenders: NormalizedTender[],
@@ -19,24 +33,28 @@ export async function filterDuplicates(
 
   const existing = await prisma.opportunity.findMany({
     where: { companyId, opportunityId: { in: opportunityIds } },
-    select: { opportunityId: true },
+    select: { id: true, opportunityId: true, source: true, status: true },
   })
-  const existingIds = new Set(existing.map((o) => o.opportunityId))
+  const existingByOppId = new Map(existing.map((o) => [o.opportunityId, o]))
 
   const newTenders: NormalizedTender[] = []
   const duplicates: NormalizedTender[] = []
+  const onboardingMatches: OnboardingMatch[] = []
 
   for (const tender of tenders) {
-    if (existingIds.has(tender.opportunityId)) {
-      duplicates.push(tender)
-    } else {
+    const match = existingByOppId.get(tender.opportunityId)
+    if (!match) {
       newTenders.push(tender)
+    } else if (match.source === 'onboarding') {
+      onboardingMatches.push({ tender, opportunityDbId: match.id, status: match.status })
+    } else {
+      duplicates.push(tender)
     }
   }
 
   console.log(
-    `[CRIBAL][DEDUP] ${tenders.length} → ${newTenders.length} nuevos (${duplicates.length} ya existían en DB)`
+    `[CRIBAL][DEDUP] ${tenders.length} → ${newTenders.length} nuevos (${duplicates.length} ya existían, ${onboardingMatches.length} del onboarding)`
   )
 
-  return { newTenders, duplicates }
+  return { newTenders, duplicates, onboardingMatches }
 }
