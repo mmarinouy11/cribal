@@ -322,7 +322,10 @@ export async function runPipeline(
     )
 
     // 7d. DB duplicate check (scoped to this company).
-    const { newTenders, duplicates } = await filterDuplicates(stageGatePassed, company.id)
+    const { newTenders, duplicates, onboardingMatches } = await filterDuplicates(
+      stageGatePassed,
+      company.id
+    )
     for (const tender of duplicates) {
       await saveRawPublication(
         run.id,
@@ -330,6 +333,50 @@ export async function runPipeline(
         rawByOpportunityId.get(tender.opportunityId),
         'duplicado',
         'Ya existe una oportunidad con este opportunityId en la base de datos'
+      )
+    }
+
+    // 7d-promote. A candidate that already exists as an onboarding-sample
+    // opportunity: if it is still open and was marked relevant (by the user or
+    // the AI during onboarding), promote it to source=pipeline — reusing the
+    // stored classification and the user's mark, with no AI call — so it shows on
+    // the dashboard and counts as relevant in the email. Not-relevant marks and
+    // expired/awarded tenders stay as onboarding calibration.
+    const promotedRelevant: Opportunity[] = []
+    let itemsPromoted = 0
+    for (const match of onboardingMatches) {
+      // The stored status already encodes the user's mark (which wins over the
+      // AI): NUEVA = relevant, anything else = not relevant → keep as calibration.
+      if (match.status !== 'NUEVA') continue
+      const { closingDate, isClosed } = await fetchTenderClosing(match.tender.tenderId)
+      if (isClosed) continue // expired / awarded → keep as calibration
+      try {
+        const promoted = await prisma.opportunity.update({
+          where: { id: match.opportunityDbId },
+          data: {
+            source: 'pipeline',
+            runId: run.id,
+            ...(closingDate ? { closingDate } : {}),
+          },
+        })
+        promotedRelevant.push(promoted)
+        itemsPromoted++
+        // Refresh dates / pliego / items without blocking the run.
+        enrichOpportunity(match.opportunityDbId).catch((err) => {
+          const message = err instanceof Error ? err.message : String(err)
+          console.error(
+            `[CRIBAL][ENRICH] Error enriqueciendo promovida ${match.opportunityDbId}: ${message}`
+          )
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        errors.push({ stage: 'promote', message })
+        console.error(`[CRIBAL][PROMO] Error promoviendo ${match.tender.opportunityId}: ${message}`)
+      }
+    }
+    if (itemsPromoted > 0) {
+      console.log(
+        `[CRIBAL][PROMO] ${itemsPromoted} oportunidad(es) del onboarding promovidas a pipeline — ${company.companyName}`
       )
     }
 
@@ -500,10 +547,13 @@ export async function runPipeline(
       }
     }
 
-    // 11. Update opportunities counter.
+    // 11. Update opportunities counters. Relevant opportunities shown to the
+    // user are the ones saved from classification plus the promoted onboarding
+    // matches.
+    const relevantOpportunities = [...savedOpportunities, ...promotedRelevant]
     await prisma.run.update({
       where: { id: run.id },
-      data: { opportunitiesSaved: savedOpportunities.length },
+      data: { opportunitiesSaved: savedOpportunities.length, itemsPromoted },
     })
 
     // 11b. Ingest failed tenders (desiertas / ofertas rechazadas) and recompute
@@ -567,14 +617,14 @@ export async function runPipeline(
 
     // 12. Send the digest email — but not for a partial run unless it produced
     // new relevant opportunities (a partial run must never look like "no news").
-    const suppressEmail = someFeedsFailed && savedOpportunities.length === 0
+    const suppressEmail = someFeedsFailed && relevantOpportunities.length === 0
     if (suppressEmail) {
       console.log(
         `[CRIBAL][EMAIL] Corrida parcial sin relevantes — no se envía email (${company.companyName}, run ${run.id})`
       )
     } else {
       try {
-        await sendDigest(savedOpportunities, newTenders, company, run.id, newDigestNiches)
+        await sendDigest(relevantOpportunities, newTenders, company, run.id, newDigestNiches)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         errors.push({ stage: 'email', message })
