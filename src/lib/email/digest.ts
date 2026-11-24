@@ -4,6 +4,7 @@ import type { NormalizedTender } from '../pipeline/normalizer'
 import { prisma } from '../db/prisma'
 import { getUrgentOpportunities, getBusinessDaysUntilClosing } from '../pipeline/urgency'
 import { NICHE_CATEGORY_LABELS } from '../niches/labels'
+import { categoryLabel } from '../categories'
 import { startOfToday, addDays } from '../dates'
 import { formatDateTime, formatRelativeTime } from '../format'
 import {
@@ -178,7 +179,8 @@ function renderUrgentSection(urgent: Opportunity[]): string {
 
 function renderRelevantCard(opp: Opportunity): string {
   const badge = scoreBadgeColors(opp.score)
-  const category = opp.category ? escapeHtml(opp.category) : ''
+  const categoryText = categoryLabel(opp.category)
+  const category = categoryText ? escapeHtml(categoryText) : ''
   const summary = opp.summary ? escapeHtml(opp.summary) : ''
   const play = opp.recommendedPlay ? escapeHtml(opp.recommendedPlay) : ''
   const organismo = opp.organismo ? escapeHtml(opp.organismo) : ''

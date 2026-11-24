@@ -355,6 +355,9 @@ export async function runPipeline(
     // expired/awarded tenders stay as onboarding calibration.
     const promotedRelevant: Opportunity[] = []
     let itemsPromoted = 0
+    // Onboarding opportunities have no AI category; give promoted ones a short
+    // rubro derived from the company's capabilities so they are not shown as "—".
+    const companyRubro = company.capabilities.find((c) => c.trim())?.trim().slice(0, 40) ?? null
     for (const match of onboardingMatches) {
       // The stored status already encodes the user's mark (which wins over the
       // AI): NUEVA = relevant, anything else = not relevant → keep as calibration.
@@ -368,6 +371,7 @@ export async function runPipeline(
             source: 'pipeline',
             runId: run.id,
             ...(closingDate ? { closingDate } : {}),
+            ...(companyRubro ? { category: companyRubro } : {}),
           },
         })
         promotedRelevant.push(promoted)
@@ -523,7 +527,9 @@ export async function runPipeline(
       if (!tender) continue
 
       const rawPubId = rawPubIdByOpportunityId.get(result.opportunityId)
-      const isRelevant = result.isRelevant && result.score >= company.minimumScore
+      // Relevance is derived from the score (and the minimum the company set),
+      // never from the category label.
+      const isRelevant = result.score >= company.minimumScore
 
       if (isRelevant) {
         try {
@@ -578,7 +584,7 @@ export async function runPipeline(
         await prisma.rawPublication.update({
           where: { id: rawPubId },
           data: {
-            filterReason: `Descartado por IA (score ${result.score}, relevante=${result.isRelevant}): ${result.summary}`,
+            filterReason: `Descartado por IA (score ${result.score} < ${company.minimumScore}): ${result.summary}`,
           },
         })
       }
