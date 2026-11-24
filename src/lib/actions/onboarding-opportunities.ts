@@ -67,6 +67,9 @@ export async function saveOnboardingOpportunities(
           score: item.aiRelevant ? ONBOARDING_SCORE : 0,
           summary: item.aiReason || null,
           status: item.aiRelevant ? 'NUEVA' : 'NO_FIT',
+          // Remember whether the final mark was an explicit user override, so a
+          // later non-promotion can say if the user or the AI marked it.
+          aiRawOutput: { userMarked: item.userMarked === true },
           detectedAt: new Date(),
         },
         select: { id: true },

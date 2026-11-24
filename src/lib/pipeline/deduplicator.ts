@@ -7,6 +7,17 @@ export interface OnboardingMatch {
   tender: NormalizedTender
   opportunityDbId: string
   status: OpportunityStatus
+  // Whether the onboarding mark was an explicit user override (vs the AI's).
+  userMarked: boolean
+}
+
+/** Read the userMarked flag stored in an onboarding opportunity's aiRawOutput. */
+function readUserMarked(aiRawOutput: unknown): boolean {
+  return (
+    typeof aiRawOutput === 'object' &&
+    aiRawOutput !== null &&
+    (aiRawOutput as { userMarked?: unknown }).userMarked === true
+  )
 }
 
 export interface DeduplicationResult {
@@ -33,7 +44,7 @@ export async function filterDuplicates(
 
   const existing = await prisma.opportunity.findMany({
     where: { companyId, opportunityId: { in: opportunityIds } },
-    select: { id: true, opportunityId: true, source: true, status: true },
+    select: { id: true, opportunityId: true, source: true, status: true, aiRawOutput: true },
   })
   const existingByOppId = new Map(existing.map((o) => [o.opportunityId, o]))
 
@@ -46,7 +57,12 @@ export async function filterDuplicates(
     if (!match) {
       newTenders.push(tender)
     } else if (match.source === 'onboarding') {
-      onboardingMatches.push({ tender, opportunityDbId: match.id, status: match.status })
+      onboardingMatches.push({
+        tender,
+        opportunityDbId: match.id,
+        status: match.status,
+        userMarked: readUserMarked(match.aiRawOutput),
+      })
     } else {
       duplicates.push(tender)
     }

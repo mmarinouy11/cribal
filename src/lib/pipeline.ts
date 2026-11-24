@@ -355,15 +355,35 @@ export async function runPipeline(
     // expired/awarded tenders stay as onboarding calibration.
     const promotedRelevant: Opportunity[] = []
     let itemsPromoted = 0
+    // Reasons an onboarding candidate was NOT promoted, for visibility.
+    const noPromo = {
+      vencida: 0,
+      adjudicada: 0,
+      no_relevante_usuario: 0,
+      no_relevante_ia: 0,
+      otra: [] as string[],
+    }
     // Onboarding opportunities have no AI category; give promoted ones a short
     // rubro derived from the company's capabilities so they are not shown as "—".
     const companyRubro = company.capabilities.find((c) => c.trim())?.trim().slice(0, 40) ?? null
     for (const match of onboardingMatches) {
-      // The stored status already encodes the user's mark (which wins over the
-      // AI): NUEVA = relevant, anything else = not relevant → keep as calibration.
-      if (match.status !== 'NUEVA') continue
-      const { closingDate, isClosed } = await fetchTenderClosing(match.tender.tenderId)
-      if (isClosed) continue // expired / awarded → keep as calibration
+      // The stored status encodes the final mark (the user's wins over the AI):
+      // NUEVA = relevant; otherwise not relevant → keep as calibration, and
+      // record whether it was the user or the AI who marked it so.
+      if (match.status !== 'NUEVA') {
+        if (match.userMarked) noPromo.no_relevante_usuario++
+        else noPromo.no_relevante_ia++
+        continue
+      }
+      const { closingDate, isClosed, isAdjudicated } = await fetchTenderClosing(match.tender.tenderId)
+      if (isAdjudicated) {
+        noPromo.adjudicada++
+        continue
+      }
+      if (isClosed) {
+        noPromo.vencida++
+        continue
+      }
       try {
         const promoted = await prisma.opportunity.update({
           where: { id: match.opportunityDbId },
@@ -386,12 +406,19 @@ export async function runPipeline(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         errors.push({ stage: 'promote', message })
+        noPromo.otra.push(match.tender.opportunityId)
         console.error(`[CRIBAL][PROMO] Error promoviendo ${match.tender.opportunityId}: ${message}`)
       }
     }
     if (itemsPromoted > 0) {
       console.log(
         `[CRIBAL][PROMO] ${itemsPromoted} oportunidad(es) del onboarding promovidas a pipeline — ${company.companyName}`
+      )
+    }
+    if (onboardingMatches.length - itemsPromoted > 0) {
+      const ids = noPromo.otra.length > 0 ? ` ids_otra=[${noPromo.otra.join(', ')}]` : ''
+      console.log(
+        `[CRIBAL][PROMO] empresa=${company.companyName} no_promovidas: vencida=${noPromo.vencida} adjudicada=${noPromo.adjudicada} no_relevante_usuario=${noPromo.no_relevante_usuario} no_relevante_ia=${noPromo.no_relevante_ia} otra=${noPromo.otra.length}${ids}`
       )
     }
 
@@ -714,6 +741,15 @@ export async function runPipeline(
       await prisma.companyConfig.update({
         where: { id: companyId },
         data: { lastSuccessfulRunAt: new Date() },
+      })
+    }
+
+    // The company has now run through the pipeline (COMPLETED or PARTIAL), so it
+    // is no longer just "registered, awaiting first run": move PENDING → ACTIVE.
+    if (company.registrationStatus === 'PENDING') {
+      await prisma.companyConfig.update({
+        where: { id: companyId },
+        data: { registrationStatus: 'ACTIVE' },
       })
     }
 
