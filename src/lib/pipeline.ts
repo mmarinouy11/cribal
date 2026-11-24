@@ -101,41 +101,53 @@ async function isFirstPipelineRun(companyId: string): Promise<boolean> {
   return completed === 0
 }
 
+interface FirstRunSelection {
+  selected: NormalizedTender[] // still-open tenders to classify (capped)
+  overflow: NormalizedTender[] // open tenders beyond the cap (retried next run)
+  expired: NormalizedTender[] // closing date already passed — dropped, not classified
+  adjudicated: NormalizedTender[] // already awarded — dropped, not classified
+}
+
 /**
- * First-run selection: enrich each candidate to learn its closing date, then
- * prioritise (still-open first, nearest closing next) and cap how many go to
- * classification. Every selected tender IS classified — open or closed — so none
- * reaches the user without a verdict; closing dates are used only to order and
- * cap. Returns the capped list (to classify) and the overflow beyond the cap (to
- * be marked unclassified and retried next run).
+ * First-run selection: enrich each candidate to learn its closing/award status,
+ * then DROP the ones already closed or awarded (no tokens spent on them, and
+ * they never become new opportunities). The still-open tenders are prioritised
+ * by nearest closing and capped; the overflow beyond the cap is retried next
+ * run. Unknown closing dates are treated as open (we never drop on an ARCE miss).
  */
 async function selectFirstRunActiveTenders(
   tenders: NormalizedTender[]
-): Promise<{ selected: NormalizedTender[]; overflow: NormalizedTender[] }> {
-  const enriched: { tender: NormalizedTender; closingDate: Date | null; isClosed: boolean }[] = []
+): Promise<FirstRunSelection> {
+  const open: { tender: NormalizedTender; closingDate: Date | null }[] = []
+  const expired: NormalizedTender[] = []
+  const adjudicated: NormalizedTender[] = []
+
   for (const tender of tenders) {
-    const { closingDate, isClosed } = await fetchTenderClosing(tender.tenderId)
-    enriched.push({ tender, closingDate, isClosed })
+    const { closingDate, isClosed, isAdjudicated } = await fetchTenderClosing(tender.tenderId)
     await delay(FIRST_RUN_ENRICH_DELAY_MS)
+    if (isAdjudicated) {
+      adjudicated.push(tender)
+    } else if (isClosed) {
+      expired.push(tender)
+    } else {
+      open.push({ tender, closingDate })
+    }
   }
 
-  // Still-open first; within each group, nearest closing first (unknown last).
-  enriched.sort((a, b) => {
-    if (a.isClosed !== b.isClosed) return a.isClosed ? 1 : -1
+  // Nearest closing first; unknown closing dates go last.
+  open.sort((a, b) => {
     if (a.closingDate && b.closingDate) return a.closingDate.getTime() - b.closingDate.getTime()
     if (a.closingDate) return -1
     if (b.closingDate) return 1
     return 0
   })
 
-  const selected = enriched.slice(0, FIRST_RUN_MAX_TO_CLASSIFY).map((e) => e.tender)
-  const overflow = enriched.slice(FIRST_RUN_MAX_TO_CLASSIFY).map((e) => e.tender)
-  if (overflow.length > 0) {
-    console.log(
-      `[CRIBAL][PIPELINE] primera corrida: ${enriched.length} nuevas, ${overflow.length} fuera del tope de ${FIRST_RUN_MAX_TO_CLASSIFY} (se reintentan en la próxima corrida)`
-    )
-  }
-  return { selected, overflow }
+  const selected = open.slice(0, FIRST_RUN_MAX_TO_CLASSIFY).map((o) => o.tender)
+  const overflow = open.slice(FIRST_RUN_MAX_TO_CLASSIFY).map((o) => o.tender)
+  console.log(
+    `[CRIBAL][PIPELINE] primera corrida: ${open.length} abiertas, cerradas=${expired.length} adjudicadas=${adjudicated.length}, ${overflow.length} fuera del tope de ${FIRST_RUN_MAX_TO_CLASSIFY}`
+  )
+  return { selected, overflow, expired, adjudicated }
 }
 
 /**
@@ -343,12 +355,35 @@ export async function runPipeline(
     // expired/awarded tenders stay as onboarding calibration.
     const promotedRelevant: Opportunity[] = []
     let itemsPromoted = 0
+    // Reasons an onboarding candidate was NOT promoted, for visibility.
+    const noPromo = {
+      vencida: 0,
+      adjudicada: 0,
+      no_relevante_usuario: 0,
+      no_relevante_ia: 0,
+      otra: [] as string[],
+    }
+    // Onboarding opportunities have no AI category; give promoted ones a short
+    // rubro derived from the company's capabilities so they are not shown as "—".
+    const companyRubro = company.capabilities.find((c) => c.trim())?.trim().slice(0, 40) ?? null
     for (const match of onboardingMatches) {
-      // The stored status already encodes the user's mark (which wins over the
-      // AI): NUEVA = relevant, anything else = not relevant → keep as calibration.
-      if (match.status !== 'NUEVA') continue
-      const { closingDate, isClosed } = await fetchTenderClosing(match.tender.tenderId)
-      if (isClosed) continue // expired / awarded → keep as calibration
+      // The stored status encodes the final mark (the user's wins over the AI):
+      // NUEVA = relevant; otherwise not relevant → keep as calibration, and
+      // record whether it was the user or the AI who marked it so.
+      if (match.status !== 'NUEVA') {
+        if (match.userMarked) noPromo.no_relevante_usuario++
+        else noPromo.no_relevante_ia++
+        continue
+      }
+      const { closingDate, isClosed, isAdjudicated } = await fetchTenderClosing(match.tender.tenderId)
+      if (isAdjudicated) {
+        noPromo.adjudicada++
+        continue
+      }
+      if (isClosed) {
+        noPromo.vencida++
+        continue
+      }
       try {
         const promoted = await prisma.opportunity.update({
           where: { id: match.opportunityDbId },
@@ -356,6 +391,7 @@ export async function runPipeline(
             source: 'pipeline',
             runId: run.id,
             ...(closingDate ? { closingDate } : {}),
+            ...(companyRubro ? { category: companyRubro } : {}),
           },
         })
         promotedRelevant.push(promoted)
@@ -370,12 +406,19 @@ export async function runPipeline(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         errors.push({ stage: 'promote', message })
+        noPromo.otra.push(match.tender.opportunityId)
         console.error(`[CRIBAL][PROMO] Error promoviendo ${match.tender.opportunityId}: ${message}`)
       }
     }
     if (itemsPromoted > 0) {
       console.log(
         `[CRIBAL][PROMO] ${itemsPromoted} oportunidad(es) del onboarding promovidas a pipeline — ${company.companyName}`
+      )
+    }
+    if (onboardingMatches.length - itemsPromoted > 0) {
+      const ids = noPromo.otra.length > 0 ? ` ids_otra=[${noPromo.otra.join(', ')}]` : ''
+      console.log(
+        `[CRIBAL][PROMO] empresa=${company.companyName} no_promovidas: vencida=${noPromo.vencida} adjudicada=${noPromo.adjudicada} no_relevante_usuario=${noPromo.no_relevante_usuario} no_relevante_ia=${noPromo.no_relevante_ia} otra=${noPromo.otra.length}${ids}`
       )
     }
 
@@ -386,9 +429,33 @@ export async function runPipeline(
     // classify every new tender, as before.
     let tendersToClassify = newTenders
     const firstRunOverflow: NormalizedTender[] = []
+    let itemsExpired = 0
     if (firstRun && newTenders.length > 0) {
-      const { selected, overflow } = await selectFirstRunActiveTenders(newTenders)
+      const { selected, overflow, expired, adjudicated } =
+        await selectFirstRunActiveTenders(newTenders)
       tendersToClassify = selected
+      itemsExpired = expired.length + adjudicated.length
+      // Closed / awarded tenders are dropped (not sent to AI, never a new
+      // opportunity). They are audited but do NOT make the run PARTIAL.
+      for (const tender of expired) {
+        await saveRawPublication(
+          run.id,
+          tender,
+          rawByOpportunityId.get(tender.opportunityId),
+          'vencida',
+          'Primera corrida: cierre ya pasado; no se envía a la IA'
+        )
+      }
+      for (const tender of adjudicated) {
+        await saveRawPublication(
+          run.id,
+          tender,
+          rawByOpportunityId.get(tender.opportunityId),
+          'adjudicada',
+          'Primera corrida: ya adjudicada; no se envía a la IA'
+        )
+      }
+      // Open tenders beyond the cap are retried next run (kept "sin clasificar").
       for (const tender of overflow) {
         firstRunOverflow.push(tender)
         await saveRawPublication(
@@ -487,7 +554,9 @@ export async function runPipeline(
       if (!tender) continue
 
       const rawPubId = rawPubIdByOpportunityId.get(result.opportunityId)
-      const isRelevant = result.isRelevant && result.score >= company.minimumScore
+      // Relevance is derived from the score (and the minimum the company set),
+      // never from the category label.
+      const isRelevant = result.score >= company.minimumScore
 
       if (isRelevant) {
         try {
@@ -542,7 +611,7 @@ export async function runPipeline(
         await prisma.rawPublication.update({
           where: { id: rawPubId },
           data: {
-            filterReason: `Descartado por IA (score ${result.score}, relevante=${result.isRelevant}): ${result.summary}`,
+            filterReason: `Descartado por IA (score ${result.score} < ${company.minimumScore}): ${result.summary}`,
           },
         })
       }
@@ -554,13 +623,13 @@ export async function runPipeline(
     const relevantOpportunities = [...savedOpportunities, ...promotedRelevant]
     await prisma.run.update({
       where: { id: run.id },
-      data: { opportunitiesSaved: savedOpportunities.length, itemsPromoted },
+      data: { opportunitiesSaved: savedOpportunities.length, itemsPromoted, itemsExpired },
     })
 
     // Funnel: one line per company/run so the whole pipeline is visible at a
     // glance (raw → date → keyword/exclusion → stage gate → dedup → promote → AI).
     console.log(
-      `[CRIBAL][PIPELINE] empresa=${company.companyName} crudos=${items.length} fecha=${afterDate.length} keyword=${exclusionResult.passed.length} etapa=${stageGatePassed.length} ya_existentes=${duplicates.length + onboardingMatches.length} promovidas=${itemsPromoted} nuevas=${newTenders.length} a_ia=${tendersToClassify.length} guardadas=${savedOpportunities.length}`
+      `[CRIBAL][PIPELINE] empresa=${company.companyName} crudos=${items.length} fecha=${afterDate.length} keyword=${exclusionResult.passed.length} etapa=${stageGatePassed.length} ya_existentes=${duplicates.length + onboardingMatches.length} vencidas_adjudicadas=${itemsExpired} promovidas=${itemsPromoted} nuevas=${newTenders.length} a_ia=${tendersToClassify.length} guardadas=${savedOpportunities.length}`
     )
 
     // 11b. Ingest failed tenders (desiertas / ofertas rechazadas) and recompute
@@ -672,6 +741,15 @@ export async function runPipeline(
       await prisma.companyConfig.update({
         where: { id: companyId },
         data: { lastSuccessfulRunAt: new Date() },
+      })
+    }
+
+    // The company has now run through the pipeline (COMPLETED or PARTIAL), so it
+    // is no longer just "registered, awaiting first run": move PENDING → ACTIVE.
+    if (company.registrationStatus === 'PENDING') {
+      await prisma.companyConfig.update({
+        where: { id: companyId },
+        data: { registrationStatus: 'ACTIVE' },
       })
     }
 

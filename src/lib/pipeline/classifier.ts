@@ -6,8 +6,9 @@ import { batchClassify, type IdentifiedResult } from '@/lib/ai/batch-classify'
 
 export interface ClassificationResult {
   opportunityId: string
-  isRelevant: boolean
   score: number
+  // Short Spanish label of what the tender is about (a company capability or a
+  // short rubro). Relevance is NOT derived from this — it comes from the score.
   category: string
   summary: string
   recommendedPlay: string
@@ -25,41 +26,15 @@ const BATCH_SIZE = 8
 const MAX_PARALLEL = 3
 const MAX_SUMMARY_CHARS = 120
 
-const CATEGORIES = [
-  'desarrollo_software',
-  'soporte_tecnico',
-  'cloud',
-  'datos_analytics',
-  'ciberseguridad',
-  'qa_testing',
-  'servicios_gestionados',
-  'licencias',
-  'consultoria',
-  'no_relevante',
-]
-
-const SYSTEM_PROMPT = `You are a specialist assistant that evaluates Uruguayan public procurement publications to identify real business opportunities for technology and digital services companies.
-
-Your task is to classify each tender and determine if it represents a genuine opportunity for the configured company.
+const SYSTEM_PROMPT = `You evaluate Uruguayan public procurement tenders (ARCE) to decide whether each one is a real business opportunity for the configured company — whatever its line of business (products or services, any industry).
 
 Use the \`classify_tenders\` tool to return exactly one classification per tender, copying each "opportunityId" exactly from the input.
 
-Field guidance:
-- "score": integer 0-10.
-- "category": one of ${CATEGORIES.join(' | ')}.
-- "summary": one short sentence in Spanish, at most ${MAX_SUMMARY_CHARS} characters.
-- "recommendedPlay": concrete commercial angle in Spanish, empty string if not relevant.
-
-Scoring scale:
-0–4: Not relevant
-5–6: Marginal — flag for manual review
-7–8: Relevant
-9–10: Highly relevant — high priority
-
-Special instruction for technical support opportunities:
-Technical support / service desk tenders ARE relevant when they involve outsourced or managed support services, including Level 1, Level 2, help desk, service desk, user support, incident management, or support and maintenance services. Treat these as relevant even if they are not software development projects.
-
-Reject tenders that are ONLY for software licenses, renewals, or subscriptions for Veeam or Zimbra, unless the tender explicitly includes a broader managed service, implementation, migration, or technical support scope beyond the license purchase.`
+For each tender:
+- "score": integer 0-10 — how well the tender fits what THIS company sells (its capabilities and keywords). 0-4 = not a fit; 5-6 = marginal; 7-8 = relevant; 9-10 = highly relevant. A tender clearly outside the company's capabilities scores low.
+- "category": a SHORT label (1-4 words, in Spanish) naming what the tender is about — pick the company capability that best fits when one does, otherwise a short rubro of your own (e.g. "Aire acondicionado", "Mantenimiento edilicio", "Equipamiento médico"). Never "no relevante" and never an IT taxonomy unless the company itself is IT.
+- "summary": one short sentence in Spanish, at most ${MAX_SUMMARY_CHARS} characters, explaining the fit.
+- "recommendedPlay": concrete commercial angle in Spanish, empty string when the tender is not a fit.`
 
 const CLASSIFY_TOOL_SCHEMA: Anthropic.Tool.InputSchema = {
   type: 'object',
@@ -70,20 +45,12 @@ const CLASSIFY_TOOL_SCHEMA: Anthropic.Tool.InputSchema = {
         type: 'object',
         properties: {
           opportunityId: { type: 'string' },
-          isRelevant: { type: 'boolean' },
           score: { type: 'integer' },
           category: { type: 'string' },
           summary: { type: 'string' },
           recommendedPlay: { type: 'string' },
         },
-        required: [
-          'opportunityId',
-          'isRelevant',
-          'score',
-          'category',
-          'summary',
-          'recommendedPlay',
-        ],
+        required: ['opportunityId', 'score', 'category', 'summary', 'recommendedPlay'],
         additionalProperties: false,
       },
     },
@@ -138,9 +105,8 @@ function extractClassifications(input: unknown): IdentifiedResult<Classification
       id: opportunityId,
       result: {
         opportunityId,
-        isRelevant: o.isRelevant === true,
         score: typeof o.score === 'number' ? Math.max(0, Math.min(10, Math.round(o.score))) : 0,
-        category: typeof o.category === 'string' ? o.category : 'no_relevante',
+        category: typeof o.category === 'string' ? o.category.trim() : '',
         summary,
         recommendedPlay: typeof o.recommendedPlay === 'string' ? o.recommendedPlay : '',
       },

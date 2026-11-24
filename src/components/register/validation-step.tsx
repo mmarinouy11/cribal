@@ -179,10 +179,11 @@ export function ValidationStep({
       ...item,
       aiRelevant: marks[item.id] === 'relevant',
       aiReason: aiReasons[item.id] ?? '',
+      userMarked: userMarks[item.id] != null,
     }))
     onValidatedItemsChange(validated)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sample, marks, aiReasons])
+  }, [sample, marks, aiReasons, userMarks])
 
   function addFeed(url: string) {
     if (!feeds.includes(url)) onFeedsChange([...feeds, url])

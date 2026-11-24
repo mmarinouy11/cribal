@@ -29,6 +29,10 @@ export interface ClassifiedValidationItem extends ValidationItem {
   // so the UI can show "Sin clasificar" and offer a retry. Optional so older
   // callers that build the item without it still type-check.
   aiStatus?: 'classified' | 'unclassified'
+  // Whether the final mark came from the user (an explicit override) rather than
+  // the AI. Persisted with the onboarding opportunity so a later non-promotion
+  // can say whether the user or the AI marked it not relevant.
+  userMarked?: boolean
 }
 
 export interface CompanyProfileInput {
