@@ -17,6 +17,20 @@ import {
   shortDate,
 } from './branding'
 
+// Statuses that hide an opportunity from the email (discarded / archived / not a
+// fit), so it is neither shown nor counted as relevant.
+const HIDDEN_STATUSES: OpportunityStatus[] = [
+  OpportunityStatus.DESCARTADA,
+  OpportunityStatus.ARCHIVADA,
+  OpportunityStatus.NO_FIT,
+]
+
+/** Still worth showing: not hidden, and not already closed at `now`. */
+function isStillOpen(opp: Opportunity, now: Date): boolean {
+  if (HIDDEN_STATUSES.includes(opp.status)) return false
+  return opp.closingDate === null || opp.closingDate.getTime() >= now.getTime()
+}
+
 // Statuses that mean the user is working/preparing an opportunity (interest or
 // preparation) — the ones a closing reminder is relevant for. NUEVA and the
 // discarded/archived states are excluded on purpose.
@@ -305,7 +319,13 @@ export async function sendDigest(
   runId: string,
   niches: NicheDigestItem[] = []
 ): Promise<void> {
-  const hasRelevant = savedOpportunities.length > 0
+  const now = new Date()
+
+  // Only still-open opportunities count and show as relevant: an expired (closing
+  // already passed at send time) or discarded/archived tender must never appear
+  // in the email nor be counted. Unknown closing date → treated as open.
+  const relevant = savedOpportunities.filter((o) => isStillOpen(o, now))
+  const hasRelevant = relevant.length > 0
 
   // "Algo que importa" = a new relevant opportunity, or a closing reminder due
   // for an opportunity the user is working on.
@@ -321,7 +341,7 @@ export async function sendDigest(
     return
   }
 
-  if (savedOpportunities.length === 0 && allNewTenders.length === 0 && !hasReminderDue) {
+  if (!hasRelevant && allNewTenders.length === 0 && !hasReminderDue) {
     console.log(
       `[CRIBAL][EMAIL] Sin oportunidades, llamados nuevos ni recordatorios — no se envía email (run ${runId})`
     )
@@ -329,17 +349,19 @@ export async function sendDigest(
   }
 
   // Section 2 shows new tenders that were not saved as relevant opportunities.
-  const savedIds = new Set(savedOpportunities.map((o) => o.opportunityId))
+  const savedIds = new Set(relevant.map((o) => o.opportunityId))
   const otherTenders = allNewTenders.filter((t) => !savedIds.has(t.opportunityId))
 
-  // Urgent section: opportunities closing within 3 business days (from the DB,
-  // enriched on previous runs).
+  // Urgent section: opportunities closing within 3 business days that have NOT
+  // already closed by the moment the email is sent.
   const urgentOpportunities = (await getUrgentOpportunities(company.id)).filter(
-    (opp) => opp.closingDate !== null && getBusinessDaysUntilClosing(opp.closingDate) <= 3
+    (opp) =>
+      opp.closingDate !== null &&
+      opp.closingDate.getTime() >= now.getTime() &&
+      getBusinessDaysUntilClosing(opp.closingDate) <= 3
   )
 
-  const now = new Date()
-  const relevantCount = savedOpportunities.length
+  const relevantCount = relevant.length
   const subject = buildSubject(
     company.companyName,
     relevantCount,
@@ -349,7 +371,7 @@ export async function sendDigest(
   )
 
   const html = buildDigestHtml(
-    savedOpportunities,
+    relevant,
     otherTenders,
     urgentOpportunities,
     niches,

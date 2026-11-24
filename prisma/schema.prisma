@@ -124,6 +124,7 @@ model Run {
   itemsSentToAi        Int           @default(0)
   opportunitiesSaved   Int           @default(0)
   itemsPromoted        Int           @default(0) // onboarding-sample opportunities promoted to source=pipeline
+  itemsExpired         Int           @default(0) // first-run tenders dropped as already closed/awarded (not sent to AI)
   failedTendersFound   Int           @default(0)
   nichesDetected       Int           @default(0)
   errors               Json          @default("[]")
