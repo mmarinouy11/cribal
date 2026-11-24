@@ -557,6 +557,12 @@ export async function runPipeline(
       data: { opportunitiesSaved: savedOpportunities.length, itemsPromoted },
     })
 
+    // Funnel: one line per company/run so the whole pipeline is visible at a
+    // glance (raw → date → keyword/exclusion → stage gate → dedup → promote → AI).
+    console.log(
+      `[CRIBAL][PIPELINE] empresa=${company.companyName} crudos=${items.length} fecha=${afterDate.length} keyword=${exclusionResult.passed.length} etapa=${stageGatePassed.length} ya_existentes=${duplicates.length + onboardingMatches.length} promovidas=${itemsPromoted} nuevas=${newTenders.length} a_ia=${tendersToClassify.length} guardadas=${savedOpportunities.length}`
+    )
+
     // 11b. Ingest failed tenders (desiertas / ofertas rechazadas) and recompute
     // niches. Best-effort — a failure here must never break the main pipeline.
     let newDigestNiches: NicheDigestItem[] = []
