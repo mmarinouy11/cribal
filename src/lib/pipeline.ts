@@ -12,7 +12,7 @@ import { filterDuplicates } from './pipeline/deduplicator'
 import { classifyTenders, type ClassificationOutcome } from './pipeline/classifier'
 import { getOnboardingExamples } from './actions/onboarding-opportunities'
 import { ingestFailedTenders } from './pipeline/failed-tenders'
-import { sendDigest, type NicheDigestItem } from './email/digest'
+import { sendDigest, isOpportunityStillOpen, type NicheDigestItem } from './email/digest'
 import { sendAdminFeedsDownAlert, sendAdminAiBillingAlert } from './email/admin-alert'
 import { enrichOpportunity, fetchTenderClosing } from './scraper/enricher'
 import { delay } from './scraper/fetch-arce'
@@ -396,13 +396,8 @@ export async function runPipeline(
         })
         promotedRelevant.push(promoted)
         itemsPromoted++
-        // Refresh dates / pliego / items without blocking the run.
-        enrichOpportunity(match.opportunityDbId).catch((err) => {
-          const message = err instanceof Error ? err.message : String(err)
-          console.error(
-            `[CRIBAL][ENRICH] Error enriqueciendo promovida ${match.opportunityDbId}: ${message}`
-          )
-        })
+        // Enrichment is awaited later (before the digest), together with the
+        // newly saved opportunities.
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         errors.push({ stage: 'promote', message })
@@ -584,12 +579,8 @@ export async function runPipeline(
             },
           })
           savedOpportunities.push(opportunity)
-
-          // Fire and forget — never block the pipeline for enrichment.
-          enrichOpportunity(opportunity.id).catch((err) => {
-            const message = err instanceof Error ? err.message : String(err)
-            console.error(`[CRIBAL][ENRICH] Error enriqueciendo ${opportunity.id}: ${message}`)
-          })
+          // Enrichment is awaited later (before the digest) so the email reflects
+          // the real closing date / adjudication status, not the just-saved state.
 
           if (rawPubId) {
             await prisma.rawPublication.update({
@@ -691,6 +682,31 @@ export async function runPipeline(
       )
     }
 
+    // 11d. Enrich the relevant opportunities (saved + promoted) and re-read them
+    // from the DB BEFORE building the digest, so the email reflects the real
+    // closing date and adjudication status. An opportunity the enrichment just
+    // marked DESCARTADA (e.g. an awarded Compra Directa) or whose closing date is
+    // already past must not count or show as relevant.
+    const relevantIds = relevantOpportunities.map((o) => o.id)
+    for (const id of relevantIds) {
+      try {
+        await enrichOpportunity(id)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(`[CRIBAL][ENRICH] Error enriqueciendo relevante ${id}: ${message}`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    const freshRelevant =
+      relevantIds.length > 0
+        ? await prisma.opportunity.findMany({ where: { id: { in: relevantIds } } })
+        : []
+    const digestNow = new Date()
+    const relevantForEmail = freshRelevant.filter((o) => isOpportunityStillOpen(o, digestNow))
+    console.log(
+      `[CRIBAL][PIPELINE] empresa=${company.companyName} relevantes=${relevantForEmail.length} (de ${relevantOpportunities.length} guardadas/promovidas, tras enriquecimiento)`
+    )
+
     // 12. Send the digest email — but not for a partial run unless it produced
     // new relevant opportunities (a partial run must never look like "no news").
     // The email's "otros nuevos" must only list tenders the AI actually
@@ -698,14 +714,14 @@ export async function runPipeline(
     // unclassified by a truncated response.
     const classifiedIds = new Set(classifications.map((c) => c.opportunityId))
     const classifiedTenders = tendersToClassify.filter((t) => classifiedIds.has(t.opportunityId))
-    const suppressEmail = someFeedsFailed && relevantOpportunities.length === 0
+    const suppressEmail = someFeedsFailed && relevantForEmail.length === 0
     if (suppressEmail) {
       console.log(
         `[CRIBAL][EMAIL] Corrida parcial sin relevantes — no se envía email (${company.companyName}, run ${run.id})`
       )
     } else {
       try {
-        await sendDigest(relevantOpportunities, classifiedTenders, company, run.id, newDigestNiches)
+        await sendDigest(relevantForEmail, classifiedTenders, company, run.id, newDigestNiches)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         errors.push({ stage: 'email', message })
