@@ -244,31 +244,87 @@ export function extractBuyObject(html: string): string | null {
   return text.length >= 3 ? text : null
 }
 
+/**
+ * Slice the HTML into one substring per `<div class="desc-item">` block. The
+ * divs nest, so we slice from each desc-item occurrence to the next (or to the
+ * end) rather than trusting the closing `</div>`. Shared by the active-tender
+ * and adjudication item parsers, which read the same ARCE markup.
+ */
+function sliceDescItemBlocks(html: string): string[] {
+  const starts: number[] = []
+  const descRegex = /class="[^"]*\bdesc-item\b[^"]*"/gi
+  let match: RegExpExecArray | null
+  while ((match = descRegex.exec(html)) !== null) starts.push(match.index)
+  return starts.map((start, i) =>
+    html.slice(start, i + 1 < starts.length ? starts[i + 1] : html.length)
+  )
+}
+
+/**
+ * Read the clean article name from an item heading's inner HTML. ARCE wraps the
+ * item number in `<span class="buy-item-title-small">Ítem Nº N</span>` and the
+ * code in `<span class="cod-art">(Cód. Artículo N)</span>`; removing both spans
+ * leaves just the name. The text fallbacks drop a leading "Ítem Nº N" prefix and
+ * any trailing "(Cód. Artículo N)" for headings that don't use those spans.
+ */
+function extractItemName(headingHtml: string): string {
+  const withoutSpans = headingHtml
+    .replace(/<span[^>]*buy-item-title-small[^>]*>[\s\S]*?<\/span>/i, ' ')
+    .replace(/<span[^>]*cod-art[^>]*>[\s\S]*?<\/span>/i, ' ')
+  return stripTags(withoutSpans)
+    .replace(/^[íi]tem\s*N[ºo°]?\s*\d+\s*[-–—:]?\s*/i, '')
+    .split(/\(?\s*C[óo]d\.?\s*Art[íi]culo/i)[0]
+    .replace(/[-–—:]\s*$/, '')
+    .trim()
+}
+
+/**
+ * Parse the item list of an active (non-adjudicated) tender detail page. Each
+ * item is a `<div class="desc-item">` block with a heading (number + name + code)
+ * and a `<ul class="list-inline">` whose "Cantidad:" entry holds the REAL
+ * quantity ("500,00 UNIDAD"). The previous version inferred the quantity from the
+ * heading, which read the item number plus the first word of the name ("1 PAPEL")
+ * — never the real amount. When a block carries no "Cantidad:" value we return
+ * null so the UI shows "—" rather than a fabricated figure.
+ */
 function extractTenderItems(html: string): TenderItem[] {
   const items: TenderItem[] = []
-  // Each item's title lives in a heading that carries "(Cód. Artículo NNNNN)".
-  const headingRegex = /<(h3|h4)[^>]*>([\s\S]*?)<\/\1>/gi
-  let match: RegExpExecArray | null
-  let counter = 0
 
-  while ((match = headingRegex.exec(html)) !== null) {
-    const text = stripTags(match[2])
-    const codeMatch = text.match(/C[óo]d\.?\s*Art[íi]culo\s*(\d+)/i)
+  // Primary: one entry per desc-item block (its heading + its own list-inline).
+  // Fallback: no desc-item wrappers — scan item headings directly, leaving the
+  // quantity null (there is no reliable block to read "Cantidad:" from).
+  const blocks = sliceDescItemBlocks(html)
+  const sources: { heading: string; block: string }[] = []
+  if (blocks.length > 0) {
+    for (const block of blocks) {
+      const h = block.match(/<(h3|h4)[^>]*>([\s\S]*?)<\/\1>/i)
+      if (h) sources.push({ heading: h[2], block })
+    }
+  } else {
+    const headingRegex = /<(h3|h4)[^>]*>([\s\S]*?)<\/\1>/gi
+    let m: RegExpExecArray | null
+    while ((m = headingRegex.exec(html)) !== null) sources.push({ heading: m[2], block: '' })
+  }
+
+  let counter = 0
+  for (const { heading, block } of sources) {
+    const headingText = stripTags(heading)
+    // Only treat a block/heading as an item when it carries an article code; this
+    // skips unrelated desc-item blocks (attachments, provider cards, etc.).
+    const codeMatch = headingText.match(/C[óo]d\.?\s*Art[íi]culo\s*(\d+)/i)
     if (!codeMatch) continue
 
     counter += 1
-    const articleCode = codeMatch[1]
-    const name = text.split(/\(?\s*C[óo]d\.?\s*Art[íi]culo/i)[0].replace(/[-–—:]\s*$/, '').trim()
+    const numberMatch = headingText.match(/[íi]tem\s*N[ºo°]?\s*(\d+)/i)
+    const itemNumber = numberMatch ? Number(numberMatch[1]) : counter
+    const name = extractItemName(heading)
 
-    // Quantity like "1,00 UNIDAD" / "10 UNIDAD", best-effort within the heading.
-    const qtyMatch = text.match(/(\d+(?:[.,]\d+)?)\s+([A-Za-zÁÉÍÓÚñÑ]+)/)
-    const quantity = qtyMatch ? `${qtyMatch[1]} ${qtyMatch[2]}` : null
-    const unit = qtyMatch ? qtyMatch[2] : null
+    // Real quantity from the "Cantidad:" label/value pair only. Absent → null.
+    const quantityRaw = block ? extractLiPairs(block).get('cantidad') ?? '' : ''
+    const quantity = quantityRaw.trim() || null
+    const unit = quantity ? splitQuantityUnit(quantityRaw).unit : null
 
-    const itemNumberMatch = text.match(/[íi]tem\s*(\d+)/i)
-    const itemNumber = itemNumberMatch ? Number(itemNumberMatch[1]) : counter
-
-    items.push({ itemNumber, name: name || `Ítem ${itemNumber}`, articleCode, quantity, unit })
+    items.push({ itemNumber, name: name || `Ítem ${itemNumber}`, articleCode: codeMatch[1], quantity, unit })
   }
 
   return items
@@ -377,16 +433,12 @@ function extractLiPairs(block: string): Map<string, string> {
 function extractAdjudicatedItems(html: string, pageCurrency: string): AdjudicatedItem[] {
   const items: AdjudicatedItem[] = []
 
-  // Each adjudicated item is a `<div class="desc-item">` block. Slice from one
-  // desc-item to the next so each block's own heading, provider and price stay
-  // together (the divs nest, so we can't rely on the closing </div>).
-  const starts: number[] = []
-  const descRegex = /class="[^"]*\bdesc-item\b[^"]*"/gi
-  let match: RegExpExecArray | null
-  while ((match = descRegex.exec(html)) !== null) starts.push(match.index)
+  // Each adjudicated item is a `<div class="desc-item">` block; slicing keeps
+  // each block's own heading, provider and price together.
+  const blocks = sliceDescItemBlocks(html)
 
-  for (let i = 0; i < starts.length; i++) {
-    const block = html.slice(starts[i], i + 1 < starts.length ? starts[i + 1] : html.length)
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]
 
     // Heading: "<span class="buy-item-title-small">Ítem Nº 1</span> NAME <span
     // class="cod-art">(Cód. Artículo 13175)</span>". Strip the two spans to get
@@ -396,11 +448,7 @@ function extractAdjudicatedItems(html: string, pageCurrency: string): Adjudicate
     const h3text = stripTags(h3html)
     const codeMatch = h3text.match(/C[óo]d\.?\s*Art[íi]culo\s*(\d+)/i)
     const numberMatch = h3text.match(/[íi]tem\s*N[ºo°]?\s*(\d+)/i)
-    const name = stripTags(
-      h3html
-        .replace(/<span[^>]*buy-item-title-small[^>]*>[\s\S]*?<\/span>/i, '')
-        .replace(/<span[^>]*cod-art[^>]*>[\s\S]*?<\/span>/i, '')
-    ).trim()
+    const name = extractItemName(h3html)
 
     // Provider: "<h4 class="provider-name">Proveedor: <strong>NAME</strong>
     // <span>(RUT 213453280018)</span></h4>".

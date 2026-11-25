@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "node --require ts-node/register --test \"src/lib/**/__tests__/*.test.ts\"",
     "seed": "ts-node src/lib/seed.ts",
     "seed:user": "ts-node src/lib/seed-user.ts",
     "pipeline": "ts-node -e \"require('./src/lib/pipeline').runPipelineAllCompanies()\"",
