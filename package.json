@@ -15,6 +15,7 @@
     "seed:user": "ts-node src/lib/seed-user.ts",
     "pipeline": "ts-node -e \"require('./src/lib/pipeline').runPipelineAllCompanies()\"",
     "backfill:failed-tenders": "ts-node src/lib/scripts/backfill-failed-tenders.ts",
+    "backfill:global-tenders": "ts-node src/lib/scripts/backfill-global-tenders.ts",
     "recompute:niches": "ts-node src/lib/scripts/recompute-niches.ts",
     "delete:company": "ts-node src/lib/scripts/delete-company.ts",
     "audit:orphans": "ts-node src/lib/scripts/audit-orphans.ts",
