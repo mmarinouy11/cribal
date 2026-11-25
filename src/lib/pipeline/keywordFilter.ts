@@ -1,5 +1,5 @@
 import type { NormalizedTender } from './normalizer'
-import { normalizeText } from '@/lib/text/normalize'
+import { normalizeForMatch } from '@/lib/text/normalize'
 
 export interface KeywordFilterResult {
   passed: NormalizedTender[]
@@ -18,9 +18,11 @@ export function filterByKeywords(
   relevantKeywords: string[],
   _additionalExcluded: string[]
 ): KeywordFilterResult {
-  // Normalize keywords (diacritic-insensitive) so "bicicleta electrica" matches
-  // "bicicleta eléctrica".
-  const relevant = relevantKeywords.map(normalizeText).filter(Boolean)
+  // Normalize keywords diacritic- and plural/singular-insensitively, so
+  // "bicicleta electrica" matches "bicicleta eléctrica" and "etiquetas
+  // autoadhesivas" matches "etiqueta autoadhesiva de vinilo". The same
+  // normalization is applied to the text below, so both sides are stemmed alike.
+  const relevant = relevantKeywords.map(normalizeForMatch).filter(Boolean)
 
   // No company keywords → do not filter; let the AI classifier decide.
   if (relevant.length === 0) {
@@ -34,7 +36,7 @@ export function filterByKeywords(
   const rejected: { tender: NormalizedTender; reason: string }[] = []
 
   for (const tender of tenders) {
-    const haystack = normalizeText(`${tender.title} ${tender.description}`)
+    const haystack = normalizeForMatch(`${tender.title} ${tender.description}`)
     const matches = relevant.some((keyword) => haystack.includes(keyword))
 
     if (matches) {

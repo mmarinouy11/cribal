@@ -26,8 +26,12 @@ const HIDDEN_STATUSES: OpportunityStatus[] = [
   OpportunityStatus.NO_FIT,
 ]
 
-/** Still worth showing: not hidden, and not already closed at `now`. */
-function isStillOpen(opp: Opportunity, now: Date): boolean {
+/**
+ * Still worth showing as relevant: not discarded/archived/not-a-fit, and not
+ * already closed at `now`. Exported so the pipeline counts relevance with the
+ * exact same criterion as the email.
+ */
+export function isOpportunityStillOpen(opp: Opportunity, now: Date): boolean {
   if (HIDDEN_STATUSES.includes(opp.status)) return false
   return opp.closingDate === null || opp.closingDate.getTime() >= now.getTime()
 }
@@ -326,7 +330,7 @@ export async function sendDigest(
   // Only still-open opportunities count and show as relevant: an expired (closing
   // already passed at send time) or discarded/archived tender must never appear
   // in the email nor be counted. Unknown closing date → treated as open.
-  const relevant = savedOpportunities.filter((o) => isStillOpen(o, now))
+  const relevant = savedOpportunities.filter((o) => isOpportunityStillOpen(o, now))
   const hasRelevant = relevant.length > 0
 
   // "Algo que importa" = a new relevant opportunity, or a closing reminder due

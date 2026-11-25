@@ -255,6 +255,48 @@ export interface GlobalIngestionResult {
   feedsFromCache: number
 }
 
+/** RSS-level columns of a GlobalTender row, read from a feed item. */
+export interface GlobalTenderRssRow {
+  tenderId: string
+  familia: string | null
+  title: string
+  rssContent: string
+  publicationDate: Date | null
+}
+
+/**
+ * Complete GlobalTender rows that already exist with a NULL title. These were
+ * first created by detail enrichment (objectDescription/tenderItems/detailHtml
+ * populated) and never received their RSS-level columns, because the RSS upsert
+ * uses createMany + skipDuplicates, which skips existing rows. Here we fill only
+ * the still-NULL RSS columns (title, familia, rssContent, publicationDate) from
+ * the feed, so the detail data already downloaded is never overwritten. Returns
+ * how many rows were completed.
+ */
+export async function completeNullTitleTenders(
+  rows: Map<string, GlobalTenderRssRow>
+): Promise<number> {
+  if (rows.size === 0) return 0
+
+  const incomplete = await prisma.globalTender.findMany({
+    where: { tenderId: { in: [...rows.keys()] }, title: null },
+    select: { tenderId: true, familia: true, rssContent: true, publicationDate: true },
+  })
+
+  let completed = 0
+  for (const existing of incomplete) {
+    const row = rows.get(existing.tenderId)
+    if (!row) continue
+    const data: Prisma.GlobalTenderUpdateInput = { title: row.title }
+    if (existing.familia === null && row.familia !== null) data.familia = row.familia
+    if (existing.rssContent === null) data.rssContent = row.rssContent
+    if (existing.publicationDate === null) data.publicationDate = row.publicationDate
+    await prisma.globalTender.update({ where: { tenderId: existing.tenderId }, data })
+    completed++
+  }
+  return completed
+}
+
 /**
  * The single global ingestion pass: under an advisory lock, fetch every unique
  * feed URL once (conditional, sequential, rate-limited) and refresh the cache.
@@ -286,10 +328,7 @@ export async function runGlobalIngestion(
 
   // RSS-level tender rows to share across companies (deduped by tenderId, first
   // feed wins). Detail enrichment fills the rest of each row later.
-  const tenderRows = new Map<
-    string,
-    { tenderId: string; familia: string | null; title: string; rssContent: string; publicationDate: Date | null }
-  >()
+  const tenderRows = new Map<string, GlobalTenderRssRow>()
 
   try {
     for (let i = 0; i < unique.length; i++) {
@@ -332,11 +371,17 @@ export async function runGlobalIngestion(
     }
     const reusedTenders = tenderRows.size - newTenders
 
+    // Rows that already existed but were created by detail enrichment keep NULL
+    // RSS-level columns (title/familia/rssContent/publicationDate): createMany
+    // with skipDuplicates skips them, so they are not among `newTenders`. Fill
+    // those columns now from the feed, without touching the detail data.
+    const completed = await completeNullTitleTenders(tenderRows)
+
     const familyNumbers = [
       ...new Set(unique.map(familiaOf).filter((f): f is string => f !== null)),
     ]
     console.log(
-      `[CRIBAL][INGEST] familias=[${familyNumbers.join(', ')}] feeds_descargados=${downloaded} feeds_cache=${fromCache} licitaciones_nuevas=${newTenders} reutilizadas=${reusedTenders}`
+      `[CRIBAL][INGEST] familias=[${familyNumbers.join(', ')}] feeds_descargados=${downloaded} feeds_cache=${fromCache} licitaciones_nuevas=${newTenders} reutilizadas=${reusedTenders} completadas=${completed}`
     )
 
     const allFailed = unique.length > 0 && failed === unique.length
