@@ -70,3 +70,33 @@ test('precision: an unrelated keyword still does not match', () => {
   assert.equal(passed.length, 0)
   assert.equal(rejected.length, 1)
 })
+
+test('generic tender passes via item names (1787/2026 for RR Etiquetas)', () => {
+  const t = tender('ADQUISICIÓN ARTÍCULOS DE ALMACENES - PAPELERIA')
+  // The RSS title alone does not contain the keyword; the real object is in items.
+  const itemsByTenderId = new Map([
+    [t.tenderId, { itemNames: ['ETIQUETA AUTOADHESIVA DE VINILO'], articleCodes: ['100160'] }],
+  ])
+  const { passed } = filterByKeywords([t], ['etiquetas autoadhesivas'], [], { itemsByTenderId })
+  assert.equal(passed.length, 1)
+})
+
+test('a non-generic tender (no items entry) is unaffected', () => {
+  const t = tender('Servicio de catering para evento')
+  const { passed } = filterByKeywords([t], ['etiquetas autoadhesivas'], [], {
+    itemsByTenderId: new Map(), // non-generic → no items provided
+  })
+  assert.equal(passed.length, 0)
+})
+
+test('an article code in the company catalog counts as a keyword hit', () => {
+  const t = tender('ADQUISICIÓN ARTÍCULOS VARIOS')
+  const itemsByTenderId = new Map([
+    [t.tenderId, { itemNames: ['PRODUCTO SIN PALABRAS CLAVE'], articleCodes: ['122651'] }],
+  ])
+  const { passed } = filterByKeywords([t], ['etiquetas'], [], {
+    itemsByTenderId,
+    catalogArticleIds: [122651],
+  })
+  assert.equal(passed.length, 1)
+})

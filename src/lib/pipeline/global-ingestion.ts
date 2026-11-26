@@ -7,6 +7,7 @@ import { fetchArceHtml } from '../scraper/fetch-arce'
 import { fetchRssFeeds, type FeedStatus, type FetchResult, type RssItem } from './fetcher'
 import { normalize } from './normalizer'
 import { isGenericText, parseClosingFromText } from './generic-text'
+import type { TenderItemsForMatch } from './keywordFilter'
 import { extractBuyObject, parseTenderDetail, type TenderItem } from '../scraper/arce-parser'
 
 // Shared, company-independent ingestion. The daily pipeline downloads each ARCE
@@ -426,6 +427,38 @@ export async function runGenericSecondPass(
     `[CRIBAL][INGEST] segunda_pasada candidatas=${stats.candidates} omitidas_cerradas=${stats.skippedClosed} bajadas=${stats.downloaded} fallidas=${stats.failed} sin_items=${stats.withoutItems}`
   )
   return stats
+}
+
+/**
+ * Load the detail items the second pass stored on global_tenders, but ONLY for the
+ * tenders whose RSS text is generic and that actually have items/codes. Keyed by
+ * tenderId. Non-generic tenders are omitted so the keyword filter's behavior is
+ * unchanged for them.
+ */
+export async function loadGenericTenderItems(
+  tenders: { tenderId: string; title: string; description: string }[]
+): Promise<Map<string, TenderItemsForMatch>> {
+  const result = new Map<string, TenderItemsForMatch>()
+  const generic = tenders.filter((t) => t.tenderId && isGenericText(t.title, t.description))
+  if (generic.length === 0) return result
+
+  const rows = await prisma.globalTender.findMany({
+    where: { tenderId: { in: [...new Set(generic.map((t) => t.tenderId))] } },
+    select: { tenderId: true, tenderItems: true, articleCodes: true },
+  })
+  const byId = new Map(rows.map((r) => [r.tenderId, r]))
+
+  for (const tender of generic) {
+    const row = byId.get(tender.tenderId)
+    if (!row) continue
+    const items = (row.tenderItems as unknown as TenderItem[] | null) ?? []
+    if (items.length === 0 && row.articleCodes.length === 0) continue
+    result.set(tender.tenderId, {
+      itemNames: items.map((item) => item.name).filter(Boolean),
+      articleCodes: row.articleCodes,
+    })
+  }
+  return result
 }
 
 /**
