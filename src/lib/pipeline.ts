@@ -501,7 +501,12 @@ export async function runPipeline(
     const onboardingExamples = await getOnboardingExamples(company.id)
     let classification: ClassificationOutcome
     try {
-      classification = await classifyTenders(tendersToClassify, company, onboardingExamples)
+      classification = await classifyTenders(
+        tendersToClassify,
+        company,
+        onboardingExamples,
+        genericItems
+      )
     } catch (error) {
       if (error instanceof AiServiceError) {
         const kind = aiFailureKind(error)

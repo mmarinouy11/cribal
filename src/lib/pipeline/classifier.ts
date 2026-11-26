@@ -1,6 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk'
 import type { CompanyConfig } from '@prisma/client'
 import type { NormalizedTender } from './normalizer'
+import type { TenderItemsForMatch } from './keywordFilter'
 import type { UserExample } from '@/lib/register/validation'
 import { batchClassify, type IdentifiedResult } from '@/lib/ai/batch-classify'
 
@@ -34,7 +35,9 @@ For each tender:
 - "score": integer 0-10 — how well the tender fits what THIS company sells (its capabilities and keywords). 0-4 = not a fit; 5-6 = marginal; 7-8 = relevant; 9-10 = highly relevant. A tender clearly outside the company's capabilities scores low.
 - "category": a SHORT label (1-4 words, in Spanish) naming what the tender is about — pick the company capability that best fits when one does, otherwise a short rubro of your own (e.g. "Aire acondicionado", "Mantenimiento edilicio", "Equipamiento médico"). Never "no relevante" and never an IT taxonomy unless the company itself is IT.
 - "summary": one short sentence in Spanish, at most ${MAX_SUMMARY_CHARS} characters, explaining the fit.
-- "recommendedPlay": concrete commercial angle in Spanish, empty string when the tender is not a fit.`
+- "recommendedPlay": concrete commercial angle in Spanish, empty string when the tender is not a fit.
+
+When a tender has an "items" field, its title/description were generic and the real articles being bought are listed there — weigh those items (and their article codes) for the score and category, not just the title.`
 
 const CLASSIFY_TOOL_SCHEMA: Anthropic.Tool.InputSchema = {
   type: 'object',
@@ -59,18 +62,37 @@ const CLASSIFY_TOOL_SCHEMA: Anthropic.Tool.InputSchema = {
   additionalProperties: false,
 }
 
-function buildUserMessage(
+// At most this many item names / codes, and total chars, added to a generic
+// tender's prompt entry — enough signal for the AI without bloating the batch.
+const MAX_ITEMS_IN_PROMPT = 15
+const MAX_ITEMS_CHARS = 600
+
+/** Compact "items" hint for a generic tender: up to 15 names + article codes. */
+function buildItemsHint(items: TenderItemsForMatch): string {
+  const names = items.itemNames.slice(0, MAX_ITEMS_IN_PROMPT).join(' · ')
+  const codes = items.articleCodes.slice(0, MAX_ITEMS_IN_PROMPT)
+  const text = codes.length > 0 ? `${names} [códigos: ${codes.join(', ')}]` : names
+  return text.slice(0, MAX_ITEMS_CHARS)
+}
+
+export function buildUserMessage(
   batch: NormalizedTender[],
   company: CompanyConfig,
-  examples: UserExample[]
+  examples: UserExample[],
+  itemsByTenderId: Map<string, TenderItemsForMatch> = new Map()
 ): string {
-  const tendersForPrompt = batch.map((tender) => ({
-    opportunityId: tender.opportunityId,
-    title: tender.title,
-    description: tender.description,
-    organismo: tender.organismo,
-    tenderType: tender.tenderType,
-  }))
+  const tendersForPrompt = batch.map((tender) => {
+    const items = itemsByTenderId.get(tender.tenderId)
+    return {
+      opportunityId: tender.opportunityId,
+      title: tender.title,
+      description: tender.description,
+      organismo: tender.organismo,
+      tenderType: tender.tenderType,
+      // Only generic tenders with items carry this; the AI weighs the real object.
+      ...(items ? { items: buildItemsHint(items) } : {}),
+    }
+  })
 
   // The company's own onboarding marks — follow this criterion for similar tenders.
   const examplesBlock = examples.length
@@ -123,7 +145,8 @@ function extractClassifications(input: unknown): IdentifiedResult<Classification
 export async function classifyTenders(
   tenders: NormalizedTender[],
   company: CompanyConfig,
-  examples: UserExample[] = []
+  examples: UserExample[] = [],
+  itemsByTenderId: Map<string, TenderItemsForMatch> = new Map()
 ): Promise<ClassificationOutcome> {
   if (tenders.length === 0) return { results: [], unclassifiedIds: [] }
 
@@ -135,7 +158,7 @@ export async function classifyTenders(
     system,
     items: tenders,
     idOf: (tender) => tender.opportunityId,
-    buildUserMessage: (batch) => buildUserMessage(batch, company, examples),
+    buildUserMessage: (batch) => buildUserMessage(batch, company, examples, itemsByTenderId),
     tool: {
       name: 'classify_tenders',
       description: 'Return the relevance classification for every tender in the batch.',
