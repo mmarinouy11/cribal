@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseTenderDetail } from '../arce-parser'
+import { formatItemQuantity, parseTenderDetail } from '../arce-parser'
 
 /**
  * Build an active-tender item block in ARCE's real markup: a `<div
@@ -77,6 +77,14 @@ test('items sharing an article code keep their own numbers and quantities', () =
     ]
   )
   assert.ok(items.every((i) => i.name === 'MARCADOR'))
+})
+
+test('formatItemQuantity drops decimals for whole numbers, keeps them otherwise', () => {
+  assert.equal(formatItemQuantity('50,00 UNIDAD'), '50 UNIDAD')
+  assert.equal(formatItemQuantity('1.234,00 UNIDAD'), '1.234 UNIDAD')
+  assert.equal(formatItemQuantity('2,50 KG'), '2,50 KG') // non-integer kept
+  assert.equal(formatItemQuantity(null), null)
+  assert.equal(formatItemQuantity('—'), '—') // unparseable kept as-is
 })
 
 test('quantity is null when the HTML has no "Cantidad:" value', () => {

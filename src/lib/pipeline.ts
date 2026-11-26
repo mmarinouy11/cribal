@@ -1,7 +1,11 @@
 import type { Prisma, Opportunity } from '@prisma/client'
 import { prisma } from './db/prisma'
 import { type RssItem } from './pipeline/fetcher'
-import { fetchCompanyFeeds, runGlobalIngestion } from './pipeline/global-ingestion'
+import {
+  fetchCompanyFeeds,
+  loadGenericTenderItems,
+  runGlobalIngestion,
+} from './pipeline/global-ingestion'
 import { FAILURE_FEED_URLS } from './pipeline/failed-tenders'
 import { normalize, type NormalizedTender } from './pipeline/normalizer'
 import { filterByDate } from './pipeline/dateFilter'
@@ -278,11 +282,16 @@ export async function runPipeline(
       dedupedInRun.push(tender)
     }
 
-    // 7a. Keyword filter.
+    // 7a. Keyword filter. For generic-text tenders, widen the haystack with the
+    // items the shared second pass stored on global_tenders (and match the
+    // company's catalog article codes), so a real object hidden behind a generic
+    // RSS text is not discarded here.
+    const genericItems = await loadGenericTenderItems(dedupedInRun)
     const keywordResult = filterByKeywords(
       dedupedInRun,
       company.relevantKeywords,
-      company.excludedKeywords
+      company.excludedKeywords,
+      { itemsByTenderId: genericItems, catalogArticleIds: company.catalogArticleIds }
     )
     for (const { tender, reason } of keywordResult.rejected) {
       await saveRawPublication(
@@ -492,7 +501,12 @@ export async function runPipeline(
     const onboardingExamples = await getOnboardingExamples(company.id)
     let classification: ClassificationOutcome
     try {
-      classification = await classifyTenders(tendersToClassify, company, onboardingExamples)
+      classification = await classifyTenders(
+        tendersToClassify,
+        company,
+        onboardingExamples,
+        genericItems
+      )
     } catch (error) {
       if (error instanceof AiServiceError) {
         const kind = aiFailureKind(error)

@@ -172,6 +172,20 @@ export function splitQuantityUnit(text: string): {
   return { quantity: parseUruguayanNumber(match[1]), unit: match[2].trim() || null }
 }
 
+/**
+ * Format an item quantity for display: drop the decimals when the amount is a
+ * whole number ("50,00 UNIDAD" → "50 UNIDAD") and keep them otherwise ("2,50 KG"
+ * stays "2,50 KG"). Unparseable or null quantities are returned unchanged. Integer
+ * amounts keep Uruguayan thousands grouping ("1.234 UNIDAD").
+ */
+export function formatItemQuantity(quantity: string | null): string | null {
+  if (!quantity) return quantity
+  const { quantity: value, unit } = splitQuantityUnit(quantity)
+  if (value === null || !Number.isInteger(value)) return quantity
+  const number = value.toLocaleString('es-UY')
+  return unit ? `${number} ${unit}` : number
+}
+
 /** "27/08/2026 12:00hs" or "27/08/2026" → Date (local time). */
 export function parseUruguayanDate(text: string): Date | null {
   if (!text) return null

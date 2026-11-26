@@ -6,7 +6,9 @@ import { arceFetch } from '../scraper/arce-http'
 import { fetchArceHtml } from '../scraper/fetch-arce'
 import { fetchRssFeeds, type FeedStatus, type FetchResult, type RssItem } from './fetcher'
 import { normalize } from './normalizer'
-import type { TenderItem } from '../scraper/arce-parser'
+import { isGenericText, parseClosingFromText } from './generic-text'
+import type { TenderItemsForMatch } from './keywordFilter'
+import { extractBuyObject, parseTenderDetail, type TenderItem } from '../scraper/arce-parser'
 
 // Shared, company-independent ingestion. The daily pipeline downloads each ARCE
 // feed and tender page once and reuses the result across every company, instead
@@ -297,6 +299,168 @@ export async function completeNullTitleTenders(
   return completed
 }
 
+// ---------------------------------------------------------------------------
+// Second pass: fetch items for generic-text tenders (shared across companies)
+// ---------------------------------------------------------------------------
+
+const ARCE_DETAIL_BASE = 'https://www.comprasestatales.gub.uy/consultas/detalle/id'
+// Caps so the pass stays bounded inside the ingestion: at most this many detail
+// downloads per run AND at most this wall-clock budget, whichever comes first.
+export const SECOND_PASS_MAX_DETAILS = 60
+export const SECOND_PASS_BUDGET_MS = 3 * 60 * 1000 // ~3 min
+// Stop the pass after this many consecutive ARCE failures (likely an outage).
+export const SECOND_PASS_MAX_CONSECUTIVE_FAILURES = 5
+
+/** The ARCE "call view" (/mostrar-llamado/1) carries the items + article codes. */
+function callViewUrl(tenderId: string): string {
+  return `${ARCE_DETAIL_BASE}/${tenderId}/mostrar-llamado/1`
+}
+
+export interface SecondPassStats {
+  candidates: number
+  skippedClosed: number
+  downloaded: number
+  failed: number
+  withoutItems: number
+}
+
+/**
+ * Fetch the items of a generic tender from the ARCE call view. THROWS when ARCE
+ * did not return the page, so the caller does not mark the tender processed and it
+ * is retried next run. A page that genuinely has no items returns an empty list
+ * (and the caller DOES mark it processed, so it is not retried forever).
+ */
+async function fetchGenericTenderDetail(tenderId: string): Promise<TenderDetail> {
+  const html = await fetchArceHtml(callViewUrl(tenderId))
+  if (html === null) throw new Error(`ARCE no devolvió el llamado ${tenderId}`)
+  const items = parseTenderDetail(html).items
+  const articleCodes = [
+    ...new Set(items.map((item) => item.articleCode).filter((code): code is string => Boolean(code))),
+  ]
+  return { objectDescription: extractBuyObject(html), tenderItems: items, articleCodes }
+}
+
+/**
+ * Second pass of the shared ingestion: for tenders whose RSS text is generic (per
+ * isGenericText) and still open, download the detail ONCE for all companies and
+ * store its items / article codes on global_tenders, so the per-company keyword
+ * and AI stages can see the real object (e.g. 1787/2026). Best-effort: it is
+ * sequential, rate-limited (INTER_REQUEST_DELAY_MS, concurrency 1, via arceFetch),
+ * capped by count and wall-clock, and stops on a run of consecutive failures. It
+ * never throws out — the caller ignores its outcome for the run status.
+ */
+export async function runGenericSecondPass(
+  tenderRows: Map<string, GlobalTenderRssRow>,
+  now: Date = new Date()
+): Promise<SecondPassStats> {
+  const stats: SecondPassStats = {
+    candidates: 0,
+    skippedClosed: 0,
+    downloaded: 0,
+    failed: 0,
+    withoutItems: 0,
+  }
+  if (tenderRows.size === 0) return stats
+
+  // Rows whose detail was already fetched (items present or detailFetchedAt set)
+  // are never re-downloaded.
+  const existing = await prisma.globalTender.findMany({
+    where: { tenderId: { in: [...tenderRows.keys()] } },
+    select: { tenderId: true, detailFetchedAt: true, tenderItems: true },
+  })
+  const processed = new Set(
+    existing
+      .filter((r) => r.detailFetchedAt !== null || r.tenderItems !== null)
+      .map((r) => r.tenderId)
+  )
+
+  // Eligible = generic + not processed; closed ones are counted and skipped.
+  const eligible: GlobalTenderRssRow[] = []
+  for (const row of tenderRows.values()) {
+    if (processed.has(row.tenderId)) continue
+    if (!isGenericText(row.title, row.rssContent)) continue
+    const closing = parseClosingFromText(`${row.title} ${row.rssContent}`)
+    if (closing && closing.getTime() < now.getTime()) {
+      stats.skippedClosed++
+      continue
+    }
+    eligible.push(row)
+  }
+  stats.candidates = eligible.length
+
+  // Newest first, so the freshest tenders are covered before the caps bite; the
+  // rest wait for the next run.
+  eligible.sort((a, b) => (b.publicationDate?.getTime() ?? 0) - (a.publicationDate?.getTime() ?? 0))
+
+  const startedAt = Date.now()
+  let consecutiveFailures = 0
+  let attempts = 0
+  for (const row of eligible) {
+    if (attempts >= SECOND_PASS_MAX_DETAILS) break
+    if (Date.now() - startedAt >= SECOND_PASS_BUDGET_MS) break
+    if (consecutiveFailures >= SECOND_PASS_MAX_CONSECUTIVE_FAILURES) break
+    if (attempts > 0) await delay(INTER_REQUEST_DELAY_MS) // pace, never after the last
+    attempts++
+
+    try {
+      const detail = await fetchGenericTenderDetail(row.tenderId)
+      const data: Prisma.GlobalTenderUpdateInput = {
+        tenderItems: detail.tenderItems as unknown as Prisma.InputJsonValue,
+        articleCodes: detail.articleCodes,
+        detailFetchedAt: now,
+      }
+      // Never clobber an object description already stored by enrichment.
+      if (detail.objectDescription !== null) data.objectDescription = detail.objectDescription
+      await prisma.globalTender.update({ where: { tenderId: row.tenderId }, data })
+      stats.downloaded++
+      if (detail.tenderItems.length === 0) stats.withoutItems++
+      consecutiveFailures = 0
+    } catch (error) {
+      stats.failed++
+      consecutiveFailures++
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[CRIBAL][INGEST] segunda_pasada: fallo ${row.tenderId}: ${message}`)
+    }
+  }
+
+  console.log(
+    `[CRIBAL][INGEST] segunda_pasada candidatas=${stats.candidates} omitidas_cerradas=${stats.skippedClosed} bajadas=${stats.downloaded} fallidas=${stats.failed} sin_items=${stats.withoutItems}`
+  )
+  return stats
+}
+
+/**
+ * Load the detail items the second pass stored on global_tenders, but ONLY for the
+ * tenders whose RSS text is generic and that actually have items/codes. Keyed by
+ * tenderId. Non-generic tenders are omitted so the keyword filter's behavior is
+ * unchanged for them.
+ */
+export async function loadGenericTenderItems(
+  tenders: { tenderId: string; title: string; description: string }[]
+): Promise<Map<string, TenderItemsForMatch>> {
+  const result = new Map<string, TenderItemsForMatch>()
+  const generic = tenders.filter((t) => t.tenderId && isGenericText(t.title, t.description))
+  if (generic.length === 0) return result
+
+  const rows = await prisma.globalTender.findMany({
+    where: { tenderId: { in: [...new Set(generic.map((t) => t.tenderId))] } },
+    select: { tenderId: true, tenderItems: true, articleCodes: true },
+  })
+  const byId = new Map(rows.map((r) => [r.tenderId, r]))
+
+  for (const tender of generic) {
+    const row = byId.get(tender.tenderId)
+    if (!row) continue
+    const items = (row.tenderItems as unknown as TenderItem[] | null) ?? []
+    if (items.length === 0 && row.articleCodes.length === 0) continue
+    result.set(tender.tenderId, {
+      itemNames: items.map((item) => item.name).filter(Boolean),
+      articleCodes: row.articleCodes,
+    })
+  }
+  return result
+}
+
 /**
  * The single global ingestion pass: under an advisory lock, fetch every unique
  * feed URL once (conditional, sequential, rate-limited) and refresh the cache.
@@ -376,6 +540,16 @@ export async function runGlobalIngestion(
     // with skipDuplicates skips them, so they are not among `newTenders`. Fill
     // those columns now from the feed, without touching the detail data.
     const completed = await completeNullTitleTenders(tenderRows)
+
+    // Second pass: for generic-text tenders, download the detail once (shared
+    // across companies) and store its items, so the keyword/AI stages can see the
+    // real object. Best-effort — never affects the ingestion status.
+    try {
+      await runGenericSecondPass(tenderRows, now)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[CRIBAL][INGEST] segunda_pasada abortada: ${message}`)
+    }
 
     const familyNumbers = [
       ...new Set(unique.map(familiaOf).filter((f): f is string => f !== null)),

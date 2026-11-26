@@ -27,13 +27,47 @@ const HIDDEN_STATUSES: OpportunityStatus[] = [
 ]
 
 /**
- * Still worth showing as relevant: not discarded/archived/not-a-fit, and not
+ * Still worth showing in the digest: not discarded/archived/not-a-fit, and not
  * already closed at `now`. Exported so the pipeline counts relevance with the
- * exact same criterion as the email.
+ * exact same criterion as the email. Takes only the fields it needs, so a partial
+ * DB selection (status + closingDate) can be passed directly.
  */
-export function isOpportunityStillOpen(opp: Opportunity, now: Date): boolean {
+export function isOpportunityStillOpen(
+  opp: Pick<Opportunity, 'status' | 'closingDate'>,
+  now: Date
+): boolean {
   if (HIDDEN_STATUSES.includes(opp.status)) return false
   return opp.closingDate === null || opp.closingDate.getTime() >= now.getTime()
+}
+
+/** The opportunity fields the digest needs to decide visibility. */
+export type DigestOpportunityStatus = Pick<Opportunity, 'status' | 'closingDate'>
+
+/**
+ * Build the "otros nuevos" list from the classified tenders, dropping any that
+ * are already shown as relevant and any whose saved opportunity enrichment later
+ * hid (discarded/archived) or that already closed. Without this, a tender filtered
+ * out of "relevantes" by isOpportunityStillOpen would reappear one section down,
+ * because the only ids excluded from "otros nuevos" are the ones that STAYED
+ * relevant. Returns the visible tenders and how many were dropped (for the log).
+ */
+export function selectOtherTenders(
+  allNewTenders: NormalizedTender[],
+  relevantOpportunityIds: Set<string>,
+  savedStatusByOpportunityId: Map<string, DigestOpportunityStatus>,
+  now: Date
+): { others: NormalizedTender[]; dropped: number } {
+  let dropped = 0
+  const others = allNewTenders.filter((tender) => {
+    if (relevantOpportunityIds.has(tender.opportunityId)) return false // already shown as relevant
+    const saved = savedStatusByOpportunityId.get(tender.opportunityId)
+    if (saved && !isOpportunityStillOpen(saved, now)) {
+      dropped++
+      return false
+    }
+    return true
+  })
+  return { others, dropped }
 }
 
 // Statuses that mean the user is working/preparing an opportunity (interest or
@@ -64,9 +98,13 @@ async function getDueClosingReminders(companyId: string): Promise<DueReminder[]>
       closingDate: { gte: startOfToday(), lte: addDays(new Date(), 6) },
     },
   })
+  const now = new Date()
   const due: DueReminder[] = []
   for (const opp of opps) {
     if (!opp.closingDate) continue
+    // Never remind about an opportunity that already closed (closingDate earlier
+    // today is still >= startOfToday but is in the past at send time).
+    if (opp.closingDate.getTime() < now.getTime()) continue
     const businessDays = getBusinessDaysUntilClosing(opp.closingDate)
     if (businessDays <= 1 && !opp.closeReminder1dSentAt) due.push({ opp, stage: '1d' })
     else if (businessDays <= 3 && !opp.closeReminder3dSentAt) due.push({ opp, stage: '3d' })
@@ -332,6 +370,37 @@ export async function sendDigest(
   // in the email nor be counted. Unknown closing date → treated as open.
   const relevant = savedOpportunities.filter((o) => isOpportunityStillOpen(o, now))
   const hasRelevant = relevant.length > 0
+  const relevantDropped = savedOpportunities.length - relevant.length
+
+  // Section 2 ("otros nuevos") lists classified tenders not shown as relevant. A
+  // tender whose saved opportunity enrichment later hid (e.g. an awarded Compra
+  // Directa marked DESCARTADA) or that already closed must not appear here either,
+  // so look up the saved status of the candidates and drop the hidden/closed ones.
+  const savedIds = new Set(relevant.map((o) => o.opportunityId))
+  const candidateIds = allNewTenders
+    .map((t) => t.opportunityId)
+    .filter((id) => !savedIds.has(id))
+  const savedRows =
+    candidateIds.length > 0
+      ? await prisma.opportunity.findMany({
+          where: { companyId: company.id, opportunityId: { in: candidateIds } },
+          select: { opportunityId: true, status: true, closingDate: true },
+        })
+      : []
+  const savedStatusMap = new Map<string, DigestOpportunityStatus>(
+    savedRows.map((r) => [r.opportunityId, r])
+  )
+  const { others: otherTenders, dropped: othersDropped } = selectOtherTenders(
+    allNewTenders,
+    savedIds,
+    savedStatusMap,
+    now
+  )
+
+  const digestDropped = relevantDropped + othersDropped
+  if (digestDropped > 0) {
+    console.log(`[CRIBAL][EMAIL] descartadas_en_digest=${digestDropped} (run ${runId})`)
+  }
 
   // "Algo que importa" = a new relevant opportunity, or a closing reminder due
   // for an opportunity the user is working on.
@@ -347,16 +416,14 @@ export async function sendDigest(
     return
   }
 
-  if (!hasRelevant && allNewTenders.length === 0 && !hasReminderDue) {
+  // Nothing worth an email: no relevant, no visible new tender (after dropping
+  // hidden/closed ones), and no reminder due.
+  if (!hasRelevant && otherTenders.length === 0 && !hasReminderDue) {
     console.log(
       `[CRIBAL][EMAIL] Sin oportunidades, llamados nuevos ni recordatorios — no se envía email (run ${runId})`
     )
     return
   }
-
-  // Section 2 shows new tenders that were not saved as relevant opportunities.
-  const savedIds = new Set(relevant.map((o) => o.opportunityId))
-  const otherTenders = allNewTenders.filter((t) => !savedIds.has(t.opportunityId))
 
   // Urgent section: opportunities closing within 3 business days that have NOT
   // already closed by the moment the email is sent.
@@ -368,13 +435,10 @@ export async function sendDigest(
   )
 
   const relevantCount = relevant.length
-  const subject = buildSubject(
-    company.companyName,
-    relevantCount,
-    allNewTenders.length,
-    niches.length,
-    now
-  )
+  // Counts never include discarded/closed tenders: the new-llamados headline and
+  // the "Total encontrados" stat are based on what is actually shown.
+  const newCount = relevantCount + otherTenders.length
+  const subject = buildSubject(company.companyName, relevantCount, newCount, niches.length, now)
 
   const html = buildDigestHtml(
     relevant,
@@ -383,7 +447,7 @@ export async function sendDigest(
     niches,
     company,
     longDate(now),
-    allNewTenders.length
+    newCount
   )
 
   const from = process.env.EMAIL_FROM ?? 'onboarding@resend.dev'
