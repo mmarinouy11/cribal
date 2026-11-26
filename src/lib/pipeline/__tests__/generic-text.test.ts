@@ -27,22 +27,27 @@ test('a short description is generic', () => {
   assert.equal(isGenericText('Compra', 'Varios'), true)
 })
 
-test('umbrella words match whole words only ("almacen" ≠ "almacenamiento")', () => {
-  // Longer words that merely contain a trigger as a substring must NOT be flagged.
+test('triggers match whole words, tolerating a plural suffix', () => {
+  // Plural forms of the trigger words are flagged (optional "s"/"es" suffix).
+  assert.equal(isGenericText('Compra de insumos', 'Ver documentos adjuntos'), true)
+  assert.equal(isGenericText('Compra de insumos', 'Según los anexos del llamado'), true)
+  assert.equal(isGenericText('Compra de insumos', 'Según los pliegos publicados'), true)
+  assert.equal(
+    isGenericText(
+      'Adquisición de artículos de almacenes para el hospital',
+      'Reposición de stock general de artículos de almacenes para el hospital durante el período anual completo'
+    ),
+    true
+  )
+})
+
+test('a longer word that merely contains a trigger is NOT flagged ("almacenamiento")', () => {
   assert.equal(
     isGenericText(
       'Servicio de almacenamiento de datos',
       'Contratación de un servicio de almacenamiento de datos en la nube por veinticuatro meses con soporte técnico'
     ),
     false
-  )
-  // The exact umbrella word still flags (whole-word match).
-  assert.equal(
-    isGenericText(
-      'Compra de papelería para oficinas',
-      'Contratación para la compra de papelería destinada a las oficinas centrales durante el período anual'
-    ),
-    true
   )
 })
 

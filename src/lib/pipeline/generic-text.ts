@@ -39,12 +39,14 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// Each trigger is matched as whole word(s): not flanked by a letter or digit, so
-// "almacen" matches the word "almacen" but never "almacenamiento". normalizeText
-// has already lowercased and stripped accents, so the boundary only needs to
-// exclude [a-z0-9].
+// Each trigger is matched as whole word(s): not flanked by a letter or digit, with
+// an optional plural suffix ("s"/"es") on the last word — so "adjunto" also matches
+// "adjuntos" and "articulos de almacen" matches "articulos de almacenes", while
+// "almacen" still never matches "almacenamiento" (the extra letters are not "s"/"es"
+// followed by a boundary). normalizeText has already lowercased and stripped accents,
+// so the boundary only needs to exclude [a-z0-9].
 const GENERIC_TRIGGER_PATTERNS: RegExp[] = GENERIC_TRIGGERS.map(
-  (trigger) => new RegExp(`(?<![a-z0-9])${escapeRegExp(trigger)}(?![a-z0-9])`)
+  (trigger) => new RegExp(`(?<![a-z0-9])${escapeRegExp(trigger)}(?:s|es)?(?![a-z0-9])`)
 )
 
 const SHORT_DESC_MIN_CHARS = 40
