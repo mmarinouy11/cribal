@@ -21,7 +21,7 @@ import { formatDateDMY, formatDateTime } from '@/lib/format'
 import { opportunityObjeto, opportunitySubtitle } from '@/lib/opportunity-labels'
 import { parseConditions } from '@/lib/conditions'
 import type { ProposalBranding } from '@/lib/export/proposal-docx'
-import type { TenderItem } from '@/lib/scraper/arce-parser'
+import { formatItemQuantity, type TenderItem } from '@/lib/scraper/arce-parser'
 import type {
   AdjudicationRecord,
   CompetitorProfile,
@@ -316,7 +316,7 @@ export default async function OpportunityDetailPage({
                           <td className="px-4 py-2 text-[#6b7280]">{item.itemNumber}</td>
                           <td className="px-4 py-2 text-[#0c1e3c]">{item.name}</td>
                           <td className="px-4 py-2 text-[#6b7280]">{item.articleCode ?? '—'}</td>
-                          <td className="px-4 py-2 text-[#6b7280]">{item.quantity ?? '—'}</td>
+                          <td className="px-4 py-2 text-[#6b7280]">{formatItemQuantity(item.quantity) ?? '—'}</td>
                         </tr>
                       ))}
                     </tbody>
