@@ -27,6 +27,25 @@ test('a short description is generic', () => {
   assert.equal(isGenericText('Compra', 'Varios'), true)
 })
 
+test('umbrella words match whole words only ("almacen" ≠ "almacenamiento")', () => {
+  // Longer words that merely contain a trigger as a substring must NOT be flagged.
+  assert.equal(
+    isGenericText(
+      'Servicio de almacenamiento de datos',
+      'Contratación de un servicio de almacenamiento de datos en la nube por veinticuatro meses con soporte técnico'
+    ),
+    false
+  )
+  // The exact umbrella word still flags (whole-word match).
+  assert.equal(
+    isGenericText(
+      'Compra de papelería para oficinas',
+      'Contratación para la compra de papelería destinada a las oficinas centrales durante el período anual'
+    ),
+    true
+  )
+})
+
 test('a specific, rich description is NOT generic (precision)', () => {
   assert.equal(
     isGenericText(

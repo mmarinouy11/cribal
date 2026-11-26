@@ -28,11 +28,24 @@ const GENERIC_TRIGGERS: string[] = [
   'insumos varios',
   'utiles varios',
   'suministros varios',
-  'articulos de almacen', // also matches "articulos de almacenes"
+  'articulos de almacen',
   'articulos de libreria',
   'articulos de papeleria',
   'papeleria',
 ]
+
+/** Escape a string so it can be embedded literally in a RegExp. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Each trigger is matched as whole word(s): not flanked by a letter or digit, so
+// "almacen" matches the word "almacen" but never "almacenamiento". normalizeText
+// has already lowercased and stripped accents, so the boundary only needs to
+// exclude [a-z0-9].
+const GENERIC_TRIGGER_PATTERNS: RegExp[] = GENERIC_TRIGGERS.map(
+  (trigger) => new RegExp(`(?<![a-z0-9])${escapeRegExp(trigger)}(?![a-z0-9])`)
+)
 
 const SHORT_DESC_MIN_CHARS = 40
 const SHORT_DESC_MIN_WORDS = 4
@@ -45,7 +58,7 @@ const SHORT_DESC_MIN_WORDS = 4
  */
 export function isGenericText(title: string, description: string): boolean {
   const combined = normalizeText(`${title} ${description}`)
-  if (GENERIC_TRIGGERS.some((trigger) => combined.includes(trigger))) return true
+  if (GENERIC_TRIGGER_PATTERNS.some((pattern) => pattern.test(combined))) return true
 
   const desc = normalizeText(description)
   const words = desc.split(' ').filter(Boolean)
